@@ -1,0 +1,43 @@
+[project]
+name = "knightfall"
+version = "0.2.0"
+description = "Project Knightfall — training engine and API (Joint-Friendly Heavy Chaos protocol)"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.13",
+    "email-validator>=2",
+    "fastapi>=0.140",
+    "httpx>=0.27",
+    "pydantic>=2.12",
+    "sqlalchemy>=2.0",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx2", "ruff>=0.15"]
+postgres = ["psycopg[binary]>=3.2"]
+
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["knightfall*"]
+
+[tool.setuptools.package-data]
+knightfall = ["migrations/script.py.mako"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["B905"]  # zip() here always pairs equal-length sequences built together
+
+[tool.ruff.lint.per-file-ignores]
+# S/T/I/E/H/C are the modality shorthands of the catalog tables.
+"knightfall/{catalog,templates}.py" = ["E741"]

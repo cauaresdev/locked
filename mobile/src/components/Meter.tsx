@@ -1,0 +1,51 @@
+import { StyleSheet, View } from 'react-native';
+
+import { colors, space } from '../theme';
+import { Row, T } from './ui';
+
+/**
+ * Horizontal consumption bar. Fill turns green only when the target is met
+ * within tolerance, amber when it overshoots `max` (or the target by 10 %).
+ */
+export function Meter({
+  label,
+  value,
+  target,
+  max,
+  min,
+  unit,
+}: {
+  label: string;
+  value: number;
+  target: number;
+  max?: number;
+  min?: number;
+  unit: string;
+}) {
+  const ceiling = max ?? target;
+  const scale = Math.max(ceiling * 1.15, value, 1);
+  const over = value > (max ?? target * 1.1);
+  const met = !over && value >= (min ?? target * 0.9);
+  const fill = over ? colors.amber : met ? colors.kryptonite : colors.bone;
+  return (
+    <View style={{ gap: 4 }}>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <T variant="label">{label}</T>
+        <T variant="label" color={over ? colors.amber : colors.concrete}>
+          {Math.round(value)}/{Math.round(max ?? target)} {unit}
+        </T>
+      </Row>
+      <View style={styles.track}>
+        <View style={[styles.fill, { width: `${Math.min(100, (value / scale) * 100)}%`, backgroundColor: fill }]} />
+        {min != null && <View style={[styles.mark, { left: `${(min / scale) * 100}%` }]} />}
+        <View style={[styles.mark, { left: `${(ceiling / scale) * 100}%` }]} />
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  track: { height: 6, backgroundColor: colors.seam, marginBottom: space.xs },
+  fill: { height: 6 },
+  mark: { position: 'absolute', top: -2, width: 1, height: 10, backgroundColor: colors.concrete },
+});
