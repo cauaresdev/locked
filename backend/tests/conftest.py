@@ -44,6 +44,9 @@ def _fresh_postgres(url: str) -> Database:
     with db.engine.begin() as conn:
         conn.execute(text("DROP SCHEMA public CASCADE"))
         conn.execute(text("CREATE SCHEMA public"))
+    # The drop takes TimescaleDB with it, and the extension can only be created again from a new
+    # session: the migrations must not reuse this pooled connection.
+    db.engine.dispose()
     return db
 
 
