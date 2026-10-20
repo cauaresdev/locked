@@ -1,10 +1,12 @@
 import json
 import os
+import time
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from knightfall.api import create_app
 from knightfall.db import Database
@@ -41,9 +43,17 @@ PG_URL = os.environ.get("KNIGHTFALL_TEST_DATABASE_URL")
 
 def _fresh_postgres(url: str) -> Database:
     db = Database(url)
-    with db.engine.begin() as conn:
-        conn.execute(text("DROP SCHEMA public CASCADE"))
-        conn.execute(text("CREATE SCHEMA public"))
+    for attempt in range(5):
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(text("DROP SCHEMA public CASCADE"))
+                conn.execute(text("CREATE SCHEMA public"))
+            break
+        except OperationalError as e:
+            # TimescaleDB's background jobs (compression policy) can hold locks the drop needs.
+            if "deadlock detected" not in str(e) or attempt == 4:
+                raise
+            time.sleep(0.2)
     # The drop takes TimescaleDB with it, and the extension can only be created again from a new
     # session: the migrations must not reuse this pooled connection.
     db.engine.dispose()

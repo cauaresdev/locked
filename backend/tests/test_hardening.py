@@ -175,8 +175,14 @@ def test_open_food_facts_junk_numbers_read_as_missing():
 # --- schema -----------------------------------------------------------------------------
 
 
+def _not_timescale_managed(obj, name, type_, reflected, compare_to) -> bool:
+    # create_hypertable adds its own index on the time column: TimescaleDB's, not the models'.
+    return not (type_ == "index" and reflected and compare_to is None and name == "telemetry_samples_ts_idx")
+
+
 def test_migrations_match_the_models(client):
     """Alembic head (applied on startup) and the SQLAlchemy models describe the same schema."""
     with client.app.state.db.engine.connect() as conn:
-        diff = compare_metadata(MigrationContext.configure(conn, opts={"compare_type": False}), Base.metadata)
+        ctx = MigrationContext.configure(conn, opts={"compare_type": False, "include_object": _not_timescale_managed})
+        diff = compare_metadata(ctx, Base.metadata)
     assert diff == []
