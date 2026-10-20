@@ -20,10 +20,18 @@ export function addDays(day: string, n: number): string {
 }
 
 function volume(rx: Prescription): string {
+  const range = (n: number) => (rx.reps_max && rx.reps_max > n ? `${n}–${rx.reps_max}` : String(n));
   if (rx.reps_sequence) return rx.reps_sequence.join('-');
-  if (rx.reps_per_side) return `${rx.reps_per_side}/lado`;
-  if (rx.reps) return String(rx.reps);
+  if (rx.reps_per_side) return `${range(rx.reps_per_side)}/lado`;
+  if (rx.reps) return range(rx.reps);
   return '';
+}
+
+const SET_ROLE = { top: 'Top set', backoff: 'Back-off' } as const;
+
+/** Rest after each set, as written in a prescription ("2 min", "90 s"). */
+export function restLabel(secondsRest: number): string {
+  return secondsRest % 60 === 0 ? `${secondsRest / 60} min` : secondsRest > 90 ? `${decimal(secondsRest / 60)} min` : `${secondsRest} s`;
 }
 
 function seconds(n: number): string {
@@ -37,6 +45,9 @@ export function rxSummary(rx: Prescription): string {
   switch (rx.mode) {
     case 'timed':
       main = `${sets}${seconds(rx.duration_seconds ?? 0)}${rx.unilateral ? '/lado' : ''}`;
+      break;
+    case 'distance':
+      main = `${sets}${rx.distance_m ?? 0} m`;
       break;
     case 'hold': {
       const reps = rx.reps_per_side && rx.reps_per_side > 1 ? `${rx.reps_per_side}/lado × ` : '';
@@ -52,6 +63,9 @@ export function rxSummary(rx: Prescription): string {
   if (rx.intensity) parts.push(rx.intensity);
   if (rx.target_rpe) parts.push(`esforço ${String(rx.target_rpe).replace('.', ',')}/10 (RPE)`);
   if (rx.suggested_load_kg != null) parts.push(`${String(rx.suggested_load_kg).replace('.', ',')} kg`);
+  // 0 = first half of a superset: straight into the next exercise.
+  if (rx.rest_seconds != null) parts.push(rx.rest_seconds === 0 ? 'supersérie: sem descanso' : `descanso ${restLabel(rx.rest_seconds)}`);
+  if (rx.set_role) parts.unshift(SET_ROLE[rx.set_role]);
   return parts.join(' · ');
 }
 
@@ -82,6 +96,7 @@ export function formatKgM(v: number): string {
 }
 
 const CYCLE_STRUCTURE: Record<string, string> = {
+  '3_1_3_1': '3 treinos + recuperação + 3 treinos + descanso',
   '6_on_2_off': '6 dias de treino + 2 de folga',
   '5_of_7': '5 treinos em 7 dias',
   '4_of_7': '4 treinos em 7 dias',

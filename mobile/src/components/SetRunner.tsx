@@ -14,12 +14,14 @@ export interface SetResult {
   reps: number | null;
   load_kg: number | null;
   duration_seconds: number | null;
+  distance_m: number | null;
   rpe: number | null;
 }
 
 // Whole steps carry their reps in reserve; half steps sit between them, like keys on a piano.
 const RPE_WHOLE: [number, string][] = [[6, 'sobram 4+'], [7, 'sobram 3'], [8, 'sobram 2'], [9, 'sobra 1'], [10, 'falha']];
 const RPE_HALF = [6.5, 7.5, 8.5, 9.5];
+const UNLOADED = new Set<Prescription['implement']>(['bodyweight', 'band', 'roller', 'ergometer']);
 const fmt = (n: number) => String(n).replace('.', ',');
 
 /** Executes and logs one set: metronome for tempo work, countdown for timed/hold work. */
@@ -27,11 +29,13 @@ export function SetRunner({
   rx,
   setNumber,
   defaultLoad,
+  prep = false,
   onLog,
 }: {
   rx: Prescription;
   setNumber: number;
   defaultLoad: number | null;
+  prep?: boolean; // preparation block: no effort rating, and no load unless something is held
   onLog: (r: SetResult) => void | Promise<void>;
 }) {
   const [reps, setReps] = useState(String(repsToLog(rx) ?? ''));
@@ -41,32 +45,41 @@ export function SetRunner({
   // Never pre-filled with the target: an untouched default would log the plan instead of
   // the effort, and every load suggestion is computed from these ratings.
   const [rpe, setRpe] = useState<number | null>(null);
-  const timed = rx.mode !== 'reps';
+  const timed = rx.mode === 'timed' || rx.mode === 'hold';
+  const distance = rx.mode === 'distance';
   const needsRpe = rx.target_rpe != null;
+  const showLoad = !prep || !UNLOADED.has(rx.implement);
+  const range = rx.reps_max ? ` (${repsToLog(rx)}–${rx.reps_max})` : '';
 
   return (
     <Panel style={{ backgroundColor: colors.void }}>
-      <T variant="label">Série {setNumber}/{rx.sets}</T>
+      <T variant="label">
+        Série {setNumber}/{rx.sets}{rx.set_role === 'top' ? ' · top set' : rx.set_role === 'backoff' ? ' · back-off' : ''}
+        {distance ? ` · ${rx.distance_m} m` : ''}
+      </T>
       {rx.tempo && rx.mode === 'reps' && <Metronome rx={rx} />}
       {timed && <WorkTimer seconds={workSeconds(rx)} />}
       {rx.cues.length > 0 && <T variant="hint">▸ {rx.cues.join(' · ')}</T>}
       <Row style={{ alignItems: 'flex-end' }}>
-        {!timed && (
-          <Field label={rx.reps_per_side ? 'Repetições por lado' : 'Repetições'} value={reps} onChangeText={setReps}
-            keyboardType="number-pad" />
+        {!timed && !distance && (
+          <Field label={(rx.reps_per_side ? 'Repetições por lado' : 'Repetições') + range} value={reps}
+            onChangeText={setReps} keyboardType="number-pad" />
         )}
-        <Field label={rx.implement === 'bodyweight' ? 'Lastro (kg)' : 'Carga (kg)'} value={load} onChangeText={setLoad}
-          keyboardType="decimal-pad" placeholder="—" />
+        {showLoad && (
+          <Field label={rx.implement === 'bodyweight' ? 'Lastro (kg)' : 'Carga (kg)'} value={load} onChangeText={setLoad}
+            keyboardType="decimal-pad" placeholder="—" />
+        )}
       </Row>
-      <RpePicker value={rpe} target={rx.target_rpe} onChange={setRpe} />
+      {!prep && <RpePicker value={rpe} target={rx.target_rpe} onChange={setRpe} />}
       <Button
         label={needsRpe && rpe == null ? 'Escolha o esforço' : 'Registrar série'}
         disabled={needsRpe && rpe == null}
         onPress={() =>
           onLog({
-            reps: timed ? null : num(reps),
-            load_kg: num(load),
+            reps: timed || distance ? null : num(reps),
+            load_kg: showLoad ? num(load) : null,
             duration_seconds: timed ? workSeconds(rx) : null,
+            distance_m: distance ? rx.distance_m : null,
             rpe,
           })
         }

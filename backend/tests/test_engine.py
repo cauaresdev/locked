@@ -24,31 +24,29 @@ def test_locate_uses_cycle_length_not_weeks():
         locate(start, date(2025, 12, 31), 8)
 
 
-def test_brawler_cycle_is_6_on_2_off():
-    days = [generate_session(Tier.BRAWLER, CyclePosition(0, d), SEED).is_training_day for d in range(1, 9)]
-    assert days == [True] * 6 + [False] * 2
+def test_brawler_cycle_is_3_on_recovery_3_on_rest():
+    days = [generate_session(Tier.BRAWLER, CyclePosition(0, d), SEED) for d in range(1, 9)]
+    assert [d.is_training_day for d in days] == [True] * 3 + [False] + [True] * 3 + [False]
+    assert [b.kind for b in days[3].blocks] == [BlockKind.RECOVERY]
+    assert days[7].blocks == [] and days[7].day_name == "Descanso absoluto"
+    assert TIERS[Tier.BRAWLER].sessions_per_cycle == 6
 
 
-def test_day1_cycle0_reproduces_documented_norton_session():
-    s = generate_session(Tier.BRAWLER, CyclePosition(0, 1), SEED)
-    assert s.protocol_id == "bvs_heavyweight_phase_2"
-    assert s.target_duration_minutes == 94
-    assert [b.duration_minutes for b in s.blocks] == [32, 40, 22]
+def test_template_day1_cycle0_reproduces_documented_norton_session():
+    # The template tiers keep the original Day 1 (Dark Knight: 0.75 of the sets, 3 drills).
+    s = generate_session(Tier.DARK_KNIGHT, CyclePosition(0, 1), SEED)
     prep, strength, cond = s.blocks
     assert prep.mandatory_lock
     assert [e.exercise_id for e in prep.exercises] == [
         "elliptical", "rumble_roller_lower", "plank_arm_extension_prep", "spiderman_lunge_stretch", "inchworm"]
-    assert prep.exercises[0].duration_seconds == 900
-    assert prep.exercises[1].duration_seconds == 540
     assert [e.exercise_id for e in strength.exercises] == [
         "db_farmers_walk", "alt_hanging_knee_up", "half_kneeling_cable_row", "wrestlers_back_bridge",
         "strict_pull_up"]
     pull_up = strength.exercises[-1]
-    assert (pull_up.sets, pull_up.reps, pull_up.tempo.notation()) == (6, 4, "4-0-4-1")
+    assert (pull_up.sets, pull_up.reps, pull_up.tempo.notation()) == (5, 4, "4-0-4-1")
     bridge = strength.exercises[3]
-    assert (bridge.mode, bridge.sets, bridge.hold_seconds, bridge.intra_set_rest_seconds) == (Mode.HOLD, 2, 15, 5)
+    assert (bridge.mode, bridge.hold_seconds, bridge.intra_set_rest_seconds) == (Mode.HOLD, 15, 5)
     assert cond.execution_style == "amrap"
-    assert cond.exercises[0].duration_seconds == 20
     assert cond.exercises[2].reps_sequence == [5, 5, 5]
 
 
@@ -99,22 +97,24 @@ def test_chaos_chain_survives_concurrent_requests():
 
 
 def test_tiers_scale_volume_and_duration():
-    brawler = generate_session(Tier.BRAWLER, CyclePosition(0, 1), SEED)
+    dark_knight = generate_session(Tier.DARK_KNIGHT, CyclePosition(0, 1), SEED)
     vigilante = generate_session(Tier.VIGILANTE, CyclePosition(0, 1), SEED)
     assert vigilante.target_duration_minutes == 45
     assert TIERS[Tier.VIGILANTE].cycle.count(None) == 3
-    for b, v in zip(brawler.blocks[1].exercises, vigilante.blocks[1].exercises):
-        assert v.sets == max(1, int(b.sets * 0.5 + 0.5))
-    assert len(vigilante.blocks[0].exercises) == len(brawler.blocks[0].exercises) - 1
+    for d, v in zip(dark_knight.blocks[1].exercises, vigilante.blocks[1].exercises):
+        base = EXERCISES[v.exercise_id].variants[v.modality].sets
+        assert v.sets == max(1, int(base * 0.5 + 0.5))
+        assert d.sets == max(1, int(base * 0.75 + 0.5))
+    assert len(vigilante.blocks[0].exercises) == len(dark_knight.blocks[0].exercises) - 1
 
 
 def test_red_readiness_expands_mobility_and_trims_strength():
     from knightfall.domain import ReadinessSummary
 
     red = ReadinessSummary(score=40, level="red", mobility_expanded=True)
-    base = generate_session(Tier.BRAWLER, CyclePosition(2, 3), SEED)
-    adj = generate_session(Tier.BRAWLER, CyclePosition(2, 3), SEED, readiness=red)
-    assert base.blocks[0].duration_minutes == 32 and adj.blocks[0].duration_minutes == 45
+    base = generate_session(Tier.DARK_KNIGHT, CyclePosition(2, 3), SEED)
+    adj = generate_session(Tier.DARK_KNIGHT, CyclePosition(2, 3), SEED, readiness=red)
+    assert base.blocks[0].duration_minutes == 16 and adj.blocks[0].duration_minutes == 24
     assert len(adj.blocks[0].exercises) == len(base.blocks[0].exercises) + 2
     assert adj.blocks[0].exercises[0].duration_seconds == base.blocks[0].exercises[0].duration_seconds
     for b, a in zip(base.blocks[1].exercises, adj.blocks[1].exercises):
@@ -125,7 +125,7 @@ def test_red_readiness_expands_mobility_and_trims_strength():
 
 
 def test_off_day_is_active_recovery():
-    s = generate_session(Tier.BRAWLER, CyclePosition(0, 7), SEED)
+    s = generate_session(Tier.DARK_KNIGHT, CyclePosition(0, 4), SEED)
     assert not s.is_training_day
     assert [b.kind for b in s.blocks] == [BlockKind.RECOVERY]
 
@@ -218,7 +218,7 @@ def test_chaos_does_not_depend_on_catalog_order(monkeypatch):
         chaos._candidates.cache_clear()
 
 
-@pytest.mark.parametrize("tier", list(Tier))
+@pytest.mark.parametrize("tier", [Tier.VIGILANTE, Tier.DARK_KNIGHT])
 def test_bodyweight_profile_uses_stand_ins_and_flags_the_rest(tier):
     bw = frozenset({Implement.BODYWEIGHT})
     cfg = TIERS[tier]

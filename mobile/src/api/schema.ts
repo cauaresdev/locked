@@ -937,7 +937,7 @@ export interface components {
          * Implement
          * @enum {string}
          */
-        Implement: "barbell" | "dumbbell" | "kettlebell" | "cable" | "machine" | "bodyweight" | "sled" | "trap_bar" | "band" | "roller" | "ergometer";
+        Implement: "barbell" | "dumbbell" | "kettlebell" | "cable" | "machine" | "bodyweight" | "sled" | "trap_bar" | "band" | "medicine_ball" | "roller" | "ergometer";
         /** MacrosOut */
         MacrosOut: {
             /** Carbs G */
@@ -985,7 +985,7 @@ export interface components {
          * @description Execution mode: decides which timer/logger the player renders.
          * @enum {string}
          */
-        Mode: "timed" | "reps" | "hold";
+        Mode: "timed" | "reps" | "hold" | "distance";
         /** NutritionDayOut */
         NutritionDayOut: {
             /** Alerts */
@@ -1043,6 +1043,8 @@ export interface components {
         Prescription: {
             /** Cues */
             cues: string[];
+            /** Distance M */
+            distance_m: number | null;
             /** Duration Seconds */
             duration_seconds: number | null;
             /** Exercise Id */
@@ -1061,10 +1063,16 @@ export interface components {
             pattern: components["schemas"]["Pattern"];
             /** Reps */
             reps: number | null;
+            /** Reps Max */
+            reps_max: number | null;
             /** Reps Per Side */
             reps_per_side: number | null;
             /** Reps Sequence */
             reps_sequence: number[] | null;
+            /** Rest Seconds */
+            rest_seconds: number | null;
+            /** Set Role */
+            set_role: ("top" | "backoff") | null;
             /**
              * Sets
              * @default 1

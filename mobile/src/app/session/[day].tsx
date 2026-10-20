@@ -52,6 +52,7 @@ function makeLog(day: string, rx: Prescription, setIndex: number, r: Partial<Set
     reps: r.reps ?? null,
     load_kg: r.load_kg ?? null,
     duration_seconds: r.duration_seconds ?? null,
+    distance_m: r.distance_m ?? null,
     rpe: r.rpe ?? null,
     performed_at: new Date().toISOString(), // dates the strength block for the energy estimate
   };
@@ -189,16 +190,30 @@ export default function SessionScreen() {
       update((p) => withSetLogged(p, key, entry.id));
       Haptics.selectionAsync().catch(() => {});
       const finished = setIndex + 1 >= rx.sets;
-      if (finished) setActive(null);
-      const rest = Math.min(block.rest_seconds, session.rest_cap_seconds);
+      const setsOf = (i: number) => progressRef.current?.setsDone[itemKey(block.order, i)] ?? 0;
+      // Superset: rest 0 on the first exercise sends straight to the second; the rest comes after the
+      // second, which then hands back to the first while it still has sets.
+      const partner = block.exercises[index + 1];
+      if (rx.rest_seconds === 0 && partner && setsOf(index + 1) < partner.sets) {
+        setActive(itemKey(block.order, index + 1));
+        comms.say(`${partner.name}. Sem descanso.`);
+        return;
+      }
+      const first = block.exercises[index - 1];
+      const backToFirst = first?.rest_seconds === 0 && setsOf(index - 1) < first.sets;
+      if (backToFirst) setActive(itemKey(block.order, index - 1));
+      else if (finished) setActive(null);
+      const rest = Math.min(rx.rest_seconds ?? block.rest_seconds, session.rest_cap_seconds);
       if (rest > 0) {
-        const next = finished ? 'Próximo exercício.' : `Série ${setIndex + 2}. Executar.`;
-        // What comes after the rest: this lift's next set, or the next lift of the block if it has sets left.
-        const nextRx = finished ? block.exercises[index + 1] : rx;
-        const nextSet = finished ? (progressRef.current?.setsDone[itemKey(block.order, index + 1)] ?? 0) + 1 : setIndex + 2;
+        // What comes after the rest: the superset's first half, this lift's next set, or the next lift of the block.
+        const nextIndex = backToFirst ? index - 1 : finished ? index + 1 : index;
+        const nextRx = block.exercises[nextIndex];
+        const nextSet = nextIndex === index ? setIndex + 2 : setsOf(nextIndex) + 1;
+        const next = nextIndex === index ? `Série ${nextSet}. Executar.`
+          : backToFirst ? `Supersérie, série ${nextSet}. Executar.` : 'Próximo exercício.';
         const upNext =
           nextRx && nextSet <= nextRx.sets
-            ? upNextOf(nextRx, nextSet, finished ? (lastLoad[nextRx.exercise_id] ?? nextRx.suggested_load_kg) : r.load_kg)
+            ? upNextOf(nextRx, nextSet, nextIndex === index ? r.load_kg : (lastLoad[nextRx.exercise_id] ?? nextRx.suggested_load_kg))
             : null;
         comms.say(`Descanso. ${rest} segundos.`);
         setRestFor((prev) => ({ id: (prev?.id ?? 0) + 1, seconds: rest, next, upNext }));
@@ -225,7 +240,8 @@ export default function SessionScreen() {
         block.exercises.map((rx) =>
           makeLog(day, rx, round, {
             reps: rx.mode === 'reps' ? repsToLog(rx) : null,
-            duration_seconds: rx.mode === 'reps' ? null : rx.duration_seconds,
+            duration_seconds: rx.mode === 'timed' || rx.mode === 'hold' ? rx.duration_seconds : null,
+            distance_m: rx.mode === 'distance' ? rx.distance_m : null,
             load_kg: lastLoad[rx.exercise_id] ?? rx.suggested_load_kg,
           }),
         ),
@@ -345,7 +361,7 @@ export default function SessionScreen() {
                         </Pressable>
                         <Row style={{ gap: space.lg }}>
                           <DemoLink name={rx.name} />
-                          {doneSets === 0 && athleteId && (
+                          {doneSets === 0 && athleteId && !rx.set_role && block.kind !== 'prep' && (
                             <TextLink label="Trocar exercício ▸" accessibilityLabel={`Trocar ${rx.name}`}
                               onPress={() => setSwapFor({ key, block: block.order, index: i })} />
                           )}
@@ -361,6 +377,7 @@ export default function SessionScreen() {
                           rx={rx}
                           setNumber={doneSets + 1}
                           defaultLoad={lastLoad[rx.exercise_id] ?? rx.suggested_load_kg}
+                          prep={block.kind === 'prep'}
                           onLog={(r) => logSet(block, i, rx, r)}
                         />
                       )}

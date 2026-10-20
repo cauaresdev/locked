@@ -27,9 +27,11 @@ class RxTemplate:
     sets: int = 1
     duration_seconds: int | None = None
     reps: int | None = None
+    reps_max: int | None = None
     reps_per_side: int | None = None
     reps_sequence: tuple[int, ...] | None = None
     hold_seconds: int | None = None
+    distance_m: int | None = None
     intra_set_rest_seconds: int | None = None
     tempo: Tempo | None = None
     intensity: str | None = None
@@ -51,6 +53,9 @@ class Exercise:
     tags: frozenset[str] = field(default_factory=frozenset)
 
 
+V2 = frozenset({"v2"})
+
+
 def reps(sets: int, n: int, **kw) -> RxTemplate:
     return RxTemplate(Mode.REPS, sets=sets, reps=n, **kw)
 
@@ -65,6 +70,10 @@ def timed(sets: int, seconds: int, **kw) -> RxTemplate:
 
 def hold(sets: int, seconds: int, **kw) -> RxTemplate:
     return RxTemplate(Mode.HOLD, sets=sets, hold_seconds=seconds, **kw)
+
+
+def distance(sets: int, meters: int, **kw) -> RxTemplate:
+    return RxTemplate(Mode.DISTANCE, sets=sets, distance_m=meters, **kw)
 
 
 def tempo(ecc: int, bottom: int, con: int, top: int) -> Tempo:
@@ -258,6 +267,57 @@ _EXERCISES: list[Exercise] = [
     Exercise("db_shrug", "Dumbbell Shrug", Pattern.TRAPS, Implement.DUMBBELL, {H: reps(1, 15)}),
     Exercise("trap_bar_shrug", "Trap Bar Shrug", Pattern.TRAPS, Implement.TRAP_BAR, {H: reps(1, 12)}, lumbar=1),
     Exercise("scapular_pull_up", "Scapular Pull-Up", Pattern.TRAPS, Implement.BODYWEIGHT, {H: reps(1, 12)}, shoulder=1, stand_in=True),
+
+    # --- Brawler V2 (tag "v2": drawn only by the V2 program, so the other tiers' rotations stay as they are) ---
+    Exercise("med_ball_slam", "Medicine Ball Slam", Pattern.HINGE, Implement.MEDICINE_BALL,
+             {E: reps(3, 5, cues=("arremesso contra o solo",))}, tags=V2),
+    Exercise("med_ball_chest_pass", "Medicine Ball Chest Pass", Pattern.PUSH_HORIZONTAL, Implement.MEDICINE_BALL,
+             {E: reps(3, 5, cues=("contra a parede",))}, tags=V2),
+    Exercise("box_jump", "Box Jump", Pattern.SQUAT, Implement.BODYWEIGHT,
+             {E: reps(3, 4, cues=("aterrissagem suave", "desça caminhando"))}, tags=V2),
+    Exercise("short_sprint", "Short Sprint", Pattern.SPRINT, Implement.BODYWEIGHT,
+             {E: distance(5, 20, intensity="velocidade máxima")}, tags=V2),
+    Exercise("band_shoulder_mobility", "Band Shoulder Mobility", Pattern.MOBILITY, Implement.BAND,
+             {P: timed(1, 180, cues=("deslocamentos com elástico", "rotações externas"))}, tags=V2),
+    Exercise("barbell_bent_over_row", "Barbell Bent-Over Row", Pattern.PULL_HORIZONTAL, Implement.BARBELL,
+             {S: reps(4, 6)}, lumbar=2, shoulder=1, tags=V2),
+    Exercise("wide_grip_lat_pulldown", "Wide-Grip Lat Pulldown", Pattern.PULL_VERTICAL, Implement.CABLE,
+             {S: reps(3, 8, reps_max=10, cues=("pela frente",)), H: reps(1, 12)}, shoulder=1, tags=V2),
+    Exercise("barbell_bench_press", "Barbell Bench Press", Pattern.PUSH_HORIZONTAL, Implement.BARBELL,
+             {S: reps(5, 5)}, shoulder=2, tags=V2),
+    Exercise("back_squat", "Low-Bar Back Squat", Pattern.SQUAT, Implement.BARBELL,
+             {S: reps(4, 5, reps_max=8)}, lumbar=2, shoulder=1, tags=V2),
+    Exercise("barbell_rdl", "Barbell Romanian Deadlift (stiff)", Pattern.HINGE, Implement.BARBELL,
+             {T: reps(3, 8, reps_max=10, tempo=tempo(3, 0, 1, 0), cues=("excêntrica controlada",))}, lumbar=2,
+             tags=V2),
+    Exercise("cable_plank_row", "Plank Single-Arm Cable Row", Pattern.CORE_ANTI_ROTATION, Implement.CABLE,
+             {S: per_side(3, 10, cues=("quadril parado: nada de girar",))}, unilateral=True, shoulder=1, tags=V2),
+    Exercise("plate_neck_curl", "Plate Neck Curl", Pattern.NECK, Implement.BARBELL,
+             {H: reps(3, 15, reps_max=20, cues=("anilha na testa, amplitude controlada",))}, tags=V2),
+    Exercise("leg_press", "Leg Press", Pattern.SQUAT, Implement.MACHINE,
+             {S: reps(4, 10, reps_max=12)}, lumbar=1, tags=V2),
+    Exercise("cable_skullcrusher", "Cable Skullcrusher", Pattern.ARMS, Implement.CABLE,
+             {H: reps(1, 12)}, shoulder=1, tags=V2),
+    Exercise("decline_push_up", "Decline Push-Up", Pattern.PUSH_HORIZONTAL, Implement.BODYWEIGHT,
+             {H: reps(1, 10)}, shoulder=1, tags=V2),
+    Exercise("wall_ball", "Wall Ball", Pattern.SQUAT, Implement.MEDICINE_BALL, {H: reps(1, 12)}, tags=V2),
+    Exercise("v_up", "V-Up", Pattern.CORE_FLEXION, Implement.BODYWEIGHT, {H: reps(1, 15)}, tags=V2),
+    Exercise("rowing_crunch", "Rowing Crunch", Pattern.CORE_FLEXION, Implement.BODYWEIGHT, {H: reps(1, 10)}, tags=V2),
+    Exercise("reverse_crunch", "Reverse Crunch", Pattern.CORE_FLEXION, Implement.BODYWEIGHT, {H: reps(1, 12)},
+             tags=V2),
+    Exercise("alternating_lunge", "Alternating Lunge", Pattern.LUNGE, Implement.BODYWEIGHT,
+             {H: reps(1, 10, cues=("alternando as pernas",))}, tags=V2),
+    Exercise("box_step_up", "Box Step-Up", Pattern.LUNGE, Implement.BODYWEIGHT,
+             {H: reps(1, 10, cues=("alternando as pernas",))}, tags=V2),
+    Exercise("burpee", "Burpee", Pattern.SQUAT, Implement.BODYWEIGHT, {H: reps(1, 8)}, tags=V2),
+    Exercise("db_thruster", "Dumbbell Thruster", Pattern.SQUAT, Implement.DUMBBELL,
+             {H: reps(1, 8, intensity="leve")}, lumbar=1, shoulder=1, tags=V2),
+    Exercise("barbell_push_press", "Barbell Push Press", Pattern.PUSH_VERTICAL, Implement.BARBELL,
+             {H: reps(1, 8, intensity="leve")}, lumbar=1, shoulder=2, tags=V2),
+    Exercise("seated_machine_row", "Seated Machine Row", Pattern.PULL_HORIZONTAL, Implement.MACHINE,
+             {H: reps(1, 10)}, shoulder=1, tags=V2),
+    Exercise("double_under", "Double-Under (corda)", Pattern.SPRINT, Implement.BODYWEIGHT,
+             {H: reps(1, 15, cues=("15 saltos duplos de corda",))}, tags=V2),
 
     # --- Sprints ---
     Exercise("airdyne_sprint", "Airdyne Bike Sprint", Pattern.SPRINT, Implement.ERGOMETER,

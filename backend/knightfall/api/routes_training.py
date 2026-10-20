@@ -62,7 +62,7 @@ def list_tiers() -> list[TierOut]:
             protocol_id=c.protocol_id,
             cycle_structure=c.cycle_structure,
             cycle_length=c.cycle_length,
-            sessions_per_cycle=sum(1 for d in c.cycle if d),
+            sessions_per_cycle=c.sessions_per_cycle,
             target_minutes=c.target_minutes,
             requires_waiver=c.requires_waiver,
             max_recommended_weeks=c.max_recommended_weeks,

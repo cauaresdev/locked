@@ -690,7 +690,7 @@
           },
           "rest_seconds": {
             "default": 45,
-            "maximum": 60.0,
+            "maximum": 240.0,
             "minimum": 0.0,
             "title": "Rest Seconds",
             "type": "integer"
@@ -1179,6 +1179,7 @@
           "sled",
           "trap_bar",
           "band",
+          "medicine_ball",
           "roller",
           "ergometer"
         ],
@@ -1298,7 +1299,8 @@
         "enum": [
           "timed",
           "reps",
-          "hold"
+          "hold",
+          "distance"
         ],
         "title": "Mode",
         "type": "string"
@@ -1461,6 +1463,18 @@
             "title": "Cues",
             "type": "array"
           },
+          "distance_m": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance M"
+          },
           "duration_seconds": {
             "anyOf": [
               {
@@ -1540,6 +1554,18 @@
             ],
             "title": "Reps"
           },
+          "reps_max": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reps Max"
+          },
           "reps_per_side": {
             "anyOf": [
               {
@@ -1565,6 +1591,34 @@
               }
             ],
             "title": "Reps Sequence"
+          },
+          "rest_seconds": {
+            "anyOf": [
+              {
+                "maximum": 240.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rest Seconds"
+          },
+          "set_role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "top",
+                  "backoff"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set Role"
           },
           "sets": {
             "default": 1,
@@ -1623,10 +1677,14 @@
           "sets",
           "duration_seconds",
           "reps",
+          "reps_max",
           "reps_per_side",
           "reps_sequence",
           "hold_seconds",
+          "distance_m",
           "intra_set_rest_seconds",
+          "rest_seconds",
+          "set_role",
           "tempo",
           "unilateral",
           "target_rpe",

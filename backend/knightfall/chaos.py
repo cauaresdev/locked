@@ -49,21 +49,24 @@ class DaySelection:
 
 
 def candidates(
-    pattern: Pattern, modalities: tuple[Modality, ...], equipment: Equipment = None, stand_ins: bool = False
+    pattern: Pattern, modalities: tuple[Modality, ...], equipment: Equipment = None, stand_ins: bool = False,
+    v2: bool = False,
 ) -> list[Variant]:
     """Variants for a slot: available regular exercises, else available stand-ins, else everything.
 
-    `stand_ins=True` (swaps) offers every available exercise, stand-ins included.
+    `stand_ins=True` (swaps) offers every available exercise, stand-ins included. `v2=True` adds the
+    exercises only Brawler V2 draws.
     """
-    return list(_candidates(pattern, modalities, equipment, stand_ins))
+    return list(_candidates(pattern, modalities, equipment, stand_ins, v2))
 
 
 @lru_cache(maxsize=4096)
 def _candidates(
-    pattern: Pattern, modalities: tuple[Modality, ...], equipment: Equipment, stand_ins: bool
+    pattern: Pattern, modalities: tuple[Modality, ...], equipment: Equipment, stand_ins: bool, v2: bool = False
 ) -> tuple[Variant, ...]:
     every = sorted(
-        ((ex.id, mod) for ex in by_pattern(pattern) for mod in modalities if mod in ex.variants),
+        ((ex.id, mod) for ex in by_pattern(pattern) if v2 or "v2" not in ex.tags
+         for mod in modalities if mod in ex.variants),
         key=lambda c: (c[0], modalities.index(c[1])),
     )
     usable = [c for c in every if available(c[0], equipment)]

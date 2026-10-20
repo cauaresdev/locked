@@ -54,10 +54,10 @@ def test_weigh_ins_drive_bodyweight_through_the_7_day_trend(client, auth):
 
 
 def test_scheduled_deload_cuts_strength_volume_and_effort():
-    cfg = TIERS[Tier.BRAWLER]
+    cfg = TIERS[Tier.DARK_KNIGHT]
     k = cfg.deload_every_cycles - 1  # first deload cycle
-    normal = generate_session(Tier.BRAWLER, CyclePosition(k - 1, 1), SEED)
-    deload = generate_session(Tier.BRAWLER, CyclePosition(k, 1), SEED)
+    normal = generate_session(Tier.DARK_KNIGHT, CyclePosition(k - 1, 1), SEED)
+    deload = generate_session(Tier.DARK_KNIGHT, CyclePosition(k, 1), SEED)
     assert not normal.deload and deload.deload
     assert any("Deload" in n for n in deload.notices)
 
@@ -67,7 +67,7 @@ def test_scheduled_deload_cuts_strength_volume_and_effort():
     assert sum(rx.sets for rx in strength(deload)) < sum(rx.sets for rx in strength(normal))
     for rx in strength(deload):
         assert rx.target_rpe is None or rx.target_rpe <= 6
-    assert not generate_session(Tier.BRAWLER, CyclePosition(0, 1), SEED).deload  # never the first cycle
+    assert not generate_session(Tier.DARK_KNIGHT, CyclePosition(0, 1), SEED).deload  # never the first cycle
 
 
 def test_three_red_days_trigger_a_deload(client, auth):

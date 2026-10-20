@@ -19,6 +19,21 @@ export const GLOSSARY: Term[] = [
     detail: 'Nota de 6 a 10 de quão pesada foi a série, contada pelas repetições que ainda sobravam: 10 = nenhuma, 9 = uma, 8 = duas, 7 = três, 6 = quatro ou mais.',
   },
   {
+    term: 'Top set',
+    meaning: 'A série mais pesada do exercício',
+    detail: 'Uma série única, perto do limite (esforço 8,5), feita logo depois do aquecimento. As séries de back-off vêm em seguida, com 80% da carga dela.',
+  },
+  {
+    term: 'Back-off',
+    meaning: 'Séries mais leves depois do top set',
+    detail: 'Com 80% da carga do top set e mais repetições: acumulam volume sem repetir o esforço máximo.',
+  },
+  {
+    term: 'Supersérie',
+    meaning: 'Dois exercícios seguidos, sem descanso entre eles',
+    detail: 'Faça uma série do primeiro, passe direto para o segundo e só então descanse. O app abre o segundo exercício sozinho.',
+  },
+  {
     term: 'AMRAP',
     meaning: 'Máximo de rodadas possível (do inglês As Many Rounds As Possible)',
     detail: 'O Bloco 3: um circuito repetido o máximo de vezes dentro do tempo do bloco.',

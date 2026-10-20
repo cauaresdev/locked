@@ -53,6 +53,7 @@ class Implement(StrEnum):
     SLED = "sled"
     TRAP_BAR = "trap_bar"
     BAND = "band"
+    MEDICINE_BALL = "medicine_ball"
     ROLLER = "roller"
     ERGOMETER = "ergometer"
 
@@ -75,6 +76,7 @@ class Mode(StrEnum):
     TIMED = "timed"  # run a clock for duration_seconds per set
     REPS = "reps"  # count reps (optionally with tempo metronome)
     HOLD = "hold"  # isometric hold of hold_seconds per set/rep
+    DISTANCE = "distance"  # cover distance_m per set (carries, short sprints)
 
 
 class BlockKind(StrEnum):
@@ -88,6 +90,10 @@ class ExecutionStyle(StrEnum):
     STRAIGHT_SETS = "straight_sets"
     AMRAP = "amrap"
     CHECKLIST = "checklist"
+
+
+# Longest rest the engine prescribes: 3–4 min after a heavy top set.
+REST_MAX_SECONDS = 240
 
 
 class OutModel(BaseModel):
@@ -122,10 +128,16 @@ class Prescription(OutModel):
     sets: int = Field(default=1, ge=1)
     duration_seconds: int | None = Field(default=None, ge=1)
     reps: int | None = Field(default=None, ge=1)
+    reps_max: int | None = Field(default=None, ge=1)  # top of a rep range ("8 a 10"); reps is the bottom
     reps_per_side: int | None = Field(default=None, ge=1)
     reps_sequence: list[int] | None = None
     hold_seconds: int | None = Field(default=None, ge=1)
+    distance_m: int | None = Field(default=None, ge=1)
     intra_set_rest_seconds: int | None = Field(default=None, ge=0)
+    # Rest after each set of this exercise; None = the block's rest. 0 = straight into the next
+    # exercise (first half of a superset).
+    rest_seconds: int | None = Field(default=None, ge=0, le=REST_MAX_SECONDS)
+    set_role: Literal["top", "backoff"] | None = None
     tempo: Tempo | None = None
     unilateral: bool = False
     target_rpe: float | None = Field(default=None, ge=1, le=10)
@@ -145,6 +157,9 @@ class Prescription(OutModel):
             case Mode.HOLD:
                 if self.hold_seconds is None:
                     raise ValueError("hold prescription needs hold_seconds")
+            case Mode.DISTANCE:
+                if self.distance_m is None:
+                    raise ValueError("distance prescription needs distance_m")
         return self
 
 
@@ -155,7 +170,7 @@ class Block(OutModel):
     duration_minutes: int
     execution_style: ExecutionStyle
     mandatory_lock: bool = False
-    rest_seconds: int = Field(default=45, ge=0, le=60)
+    rest_seconds: int = Field(default=45, ge=0, le=REST_MAX_SECONDS)
     exercises: list[Prescription]
 
 

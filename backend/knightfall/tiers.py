@@ -1,8 +1,9 @@
 """Adaptation tiers.
 
-Brawler is the full documented protocol (6 on / 2 off, ~94 min). The lower
-tiers keep the philosophy (mandatory mobility + heavy compound + finishing
-circuit) with less volume so a normal schedule can sustain it.
+Brawler runs its own program (V2, see brawler_v2.py): 3 training days, active
+recovery, 3 training days, full rest, with fixed primary lifts and per-exercise
+rest. The lower tiers keep the original day templates (mandatory mobility +
+heavy compound + finishing circuit) with less volume.
 """
 
 from __future__ import annotations
@@ -11,12 +12,15 @@ from dataclasses import dataclass
 
 from .domain import Tier
 
+# Cycle entry for a full rest day: no session at all (None is active recovery).
+REST_DAY = "REST"
+
 
 @dataclass(frozen=True)
 class TierConfig:
     tier: Tier
     protocol_id: str
-    # One entry per cycle day: a day-template id, or None for a recovery day.
+    # One entry per cycle day: a day-template id, None for active recovery or REST_DAY.
     cycle: tuple[str | None, ...]
     cycle_structure: str
     prep_minutes: int
@@ -29,10 +33,15 @@ class TierConfig:
     requires_waiver: bool = False
     max_recommended_weeks: int | None = None
     deload_every_cycles: int = 6  # every Nth cycle is a deload (~6 weeks)
+    program: str = "templates"  # "templates" (templates.py + Chaos Engine) or "v2" (brawler_v2.py)
 
     @property
     def cycle_length(self) -> int:
         return len(self.cycle)
+
+    @property
+    def sessions_per_cycle(self) -> int:
+        return sum(1 for d in self.cycle if d and d != REST_DAY)
 
     @property
     def target_minutes(self) -> int:
@@ -68,23 +77,26 @@ TIERS: dict[Tier, TierConfig] = {
     ),
     Tier.BRAWLER: TierConfig(
         tier=Tier.BRAWLER,
-        protocol_id="bvs_heavyweight_phase_2",
-        cycle=("D1", "D2", "D3", "D4", "D5", "D6", None, None),
-        cycle_structure="6_on_2_off",
-        prep_minutes=32,
-        prep_expanded_minutes=45,
-        strength_minutes=40,
-        conditioning_minutes=22,
+        protocol_id="knightfall_brawler_v2",
+        cycle=("V1", "V2", "V3", None, "V5", "V6", "V7", REST_DAY),
+        cycle_structure="3_1_3_1",
+        # Typical day; each V2 day sets its own block lengths.
+        prep_minutes=8,
+        prep_expanded_minutes=8,
+        strength_minutes=35,
+        conditioning_minutes=10,
         set_multiplier=1.0,
-        mobility_drills=3,
-        rest_seconds=60,
+        mobility_drills=0,
+        rest_seconds=120,
         requires_waiver=True,
         max_recommended_weeks=16,
         deload_every_cycles=5,  # 8-day cycles: every 40 days
+        program="v2",
     ),
 }
 
 REST_CAP_SECONDS = 60
+V2_REST_CAP_SECONDS = 240  # 3–4 min after heavy top sets
 DELOAD_SET_MULTIPLIER = 0.6
 DELOAD_RPE_DELTA = -2
 AMRAP_ROUND_REST_SECONDS = 30

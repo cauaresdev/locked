@@ -209,30 +209,35 @@ export default function Today() {
 
             <ReadinessPanel session={session} athleteId={athlete.id} day={today} onUpdated={refresh} offline={source !== 'live'} />
 
-            <Panel>
-              <Row style={{ justifyContent: 'space-between' }}>
-                <T variant="label">Sessão</T>
-                <T variant="label">{session.target_duration_minutes} min</T>
-              </Row>
-              {session.blocks.map((b) => (
-                <View key={b.order} style={{ gap: 2, marginTop: space.sm }}>
-                  <Row style={{ justifyContent: 'space-between' }}>
-                    <T style={{ fontSize: 13, flex: 1 }}>{b.order}. {b.name}</T>
-                    <T variant="label">{b.duration_minutes} min</T>
-                  </Row>
-                  {b.exercises.map((e, i) => (
-                    <T key={i} variant="hint" numberOfLines={1}>
-                      {e.name} — {rxSummary(e)}
-                    </T>
-                  ))}
-                </View>
-              ))}
-            </Panel>
+            {/* A full rest day has no session: nothing to list or start. */}
+            {session.blocks.length > 0 && (
+              <Panel>
+                <Row style={{ justifyContent: 'space-between' }}>
+                  <T variant="label">Sessão</T>
+                  <T variant="label">{session.target_duration_minutes} min</T>
+                </Row>
+                {session.blocks.map((b) => (
+                  <View key={b.order} style={{ gap: 2, marginTop: space.sm }}>
+                    <Row style={{ justifyContent: 'space-between' }}>
+                      <T style={{ fontSize: 13, flex: 1 }}>{b.order}. {b.name}</T>
+                      <T variant="label">{b.duration_minutes} min</T>
+                    </Row>
+                    {b.exercises.map((e, i) => (
+                      <T key={i} variant="hint" numberOfLines={1}>
+                        {e.name} — {rxSummary(e)}
+                      </T>
+                    ))}
+                  </View>
+                ))}
+              </Panel>
+            )}
 
-            <Button
-              label={session.is_training_day ? 'Iniciar sessão' : 'Iniciar recuperação ativa'}
-              onPress={() => router.push({ pathname: '/session/[day]', params: { day: today } })}
-            />
+            {session.blocks.length > 0 && (
+              <Button
+                label={session.is_training_day ? 'Iniciar sessão' : 'Iniciar recuperação ativa'}
+                onPress={() => router.push({ pathname: '/session/[day]', params: { day: today } })}
+              />
+            )}
           </>
         )}
 
@@ -266,7 +271,10 @@ function CycleStrip({ sessions, current }: { sessions: (Session | null)[]; curre
               isCurrent && { borderColor: colors.bone, borderWidth: 2 },
             ]}
           >
-            <T variant="label" style={{ fontSize: 10 }}>{training ? `Dia ${day}` : 'Folga'}</T>
+            {/* Off days: active recovery has a session to run, a full rest day has none. */}
+            <T variant="label" style={{ fontSize: 10 }}>
+              {training ? `Dia ${day}` : s && s.blocks.length > 0 ? 'Recup' : 'Folga'}
+            </T>
           </View>
         );
       })}

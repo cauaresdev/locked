@@ -43,6 +43,7 @@ const EQUIPMENT: { id: Implement; label: string }[] = [
   { id: 'machine', label: 'Máquinas' },
   { id: 'sled', label: 'Trenó' },
   { id: 'band', label: 'Elástico' },
+  { id: 'medicine_ball', label: 'Medicine ball' },
   { id: 'roller', label: 'Rolo de liberação' },
   { id: 'ergometer', label: 'Bike / remo / elíptico' },
 ];

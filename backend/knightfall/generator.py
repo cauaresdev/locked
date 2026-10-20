@@ -52,6 +52,7 @@ IMPLEMENT_LABEL: dict[Implement, str] = {
     Implement.SLED: "trenó",
     Implement.TRAP_BAR: "barra hexagonal (trap bar)",
     Implement.BAND: "elástico",
+    Implement.MEDICINE_BALL: "medicine ball",
     Implement.ROLLER: "rolo de liberação miofascial",
     Implement.ERGOMETER: "ergômetro (bike ou elíptico)",
 }
@@ -83,7 +84,8 @@ def _target_reps(tpl: RxTemplate) -> int | None:
         return None
     if tpl.reps_sequence:
         return max(tpl.reps_sequence)
-    return tpl.reps or tpl.reps_per_side
+    # A range ("8 a 10") is loaded for its top: the last reps of the range still land on the target effort.
+    return tpl.reps_max or tpl.reps or tpl.reps_per_side
 
 
 def build_rx(
@@ -95,11 +97,20 @@ def build_rx(
     duration_seconds: int | None = None,
     history: Sequence[SetRecord] = (),
     bodyweight_kg: float | None = None,
+    tpl: RxTemplate | None = None,
+    base_rpe: float | None = None,
+    no_rpe: bool = False,
+    rest_seconds: int | None = None,
 ) -> Prescription:
+    """`tpl` replaces the catalog's prescription for the variant; `base_rpe` its modality's target effort."""
     ex = EXERCISES[variant[0]]
-    tpl: RxTemplate = ex.variants[variant[1]]
+    tpl = tpl or ex.variants[variant[1]]
     sets = max(1, _round_half_up(tpl.sets * set_multiplier) + set_delta)
     rpe = TARGET_RPE.get(variant[1]) if ex.implement != Implement.ERGOMETER and ex.pattern != Pattern.SPRINT else None
+    if base_rpe is not None and rpe is not None:
+        rpe = base_rpe
+    if no_rpe:
+        rpe = None
     if rpe is not None:
         rpe = max(5.0, rpe + rpe_delta)
     return Prescription(
@@ -112,10 +123,13 @@ def build_rx(
         sets=sets,
         duration_seconds=duration_seconds or tpl.duration_seconds,
         reps=tpl.reps,
+        reps_max=tpl.reps_max,
         reps_per_side=tpl.reps_per_side,
         reps_sequence=list(tpl.reps_sequence) if tpl.reps_sequence else None,
         hold_seconds=tpl.hold_seconds,
+        distance_m=tpl.distance_m,
         intra_set_rest_seconds=tpl.intra_set_rest_seconds,
+        rest_seconds=rest_seconds,
         tempo=tpl.tempo,
         unilateral=ex.unilateral,
         target_rpe=rpe,
@@ -239,6 +253,12 @@ def generate_session(
     template_id = cfg.cycle[pos.cycle_day - 1]
     if template_id is None:
         return _recovery_session(cfg, pos, readiness, equipment)
+    if cfg.program == "v2":
+        from . import brawler_v2
+
+        return brawler_v2.generate(cfg, template_id, pos.cycle_index, pos.cycle_day, seed, readiness=readiness,
+                                   history=history, weeks_in_tier=weeks_in_tier, bodyweight_kg=bodyweight_kg,
+                                   low_readiness_streak=low_readiness_streak, equipment=equipment)
 
     sel = select_day(seed, template_id, pos.cycle_index, equipment)
     level = readiness.level if readiness else "green"
@@ -330,6 +350,12 @@ def alternatives(
         raise ValueError("recovery days have no swappable exercises")
     session = generate_session(tier, pos, seed, readiness=readiness, history=history, bodyweight_kg=bodyweight_kg,
                                low_readiness_streak=low_readiness_streak, equipment=equipment)
+    if cfg.program == "v2":
+        from . import brawler_v2
+
+        p = brawler_v2.params(cfg, pos.cycle_index, readiness, low_readiness_streak)
+        return brawler_v2.alternatives(session, template_id, block_order, index, p=p, history=history,
+                                       bodyweight_kg=bodyweight_kg, equipment=equipment, limit=MAX_ALTERNATIVES)
     block = next((b for b in session.blocks if b.order == block_order), None)
     if block is None or block.kind not in (BlockKind.STRENGTH, BlockKind.CONDITIONING):
         raise ValueError("only strength and conditioning exercises can be swapped")
