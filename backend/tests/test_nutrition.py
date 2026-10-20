@@ -1,15 +1,18 @@
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 from knightfall.foods import classify_dairy, parse_product
 from knightfall.nutrition import (
+    STAPLES,
     Category,
     Dairy,
     Entry,
     Meal,
     audit,
+    entry_from_per100,
     lean_mass,
     targets,
 )
@@ -62,9 +65,59 @@ def test_audit_alerts():
     ({"ingredients_tags": ["en:coconut-milk", "en:cocoa-butter"]}, Dairy.NONE),
     ({"traces_tags": ["en:milk"]}, Dairy.TRACES),
     ({}, Dairy.NONE),
+    # Plant look-alikes and words that merely contain "butter"/"cream"/"curd".
+    *(({"ingredients_tags": [t]}, Dairy.NONE) for t in (
+        "pt:leite-de-coco", "en:coconut-cream", "en:butternut-squash", "en:bean-curd", "en:almond-butter",
+        "en:cacao-butter", "pt:manteiga-de-cacau", "pt:manteiga-de-amendoim", "en:cream-of-tartar",
+        "fr:lait-d-amande", "es:leche-de-soja")),
+    # Portuguese, Spanish and French dairy.
+    *(({"ingredients_tags": [t]}, Dairy.CONTAINS) for t in (
+        "pt:queijo-mussarela", "pt:manteiga", "pt:caseína", "pt:caseina", "pt:nata", "pt:requeijão",
+        "pt:creme-de-leite", "fr:fromage", "fr:beurre", "es:leche", "es:queso", "en:milk-chocolate")),
+    # Isolate: hydrolysed whey isolate in one tag, plus OFF's generic parents of it.
+    ({"allergens_tags": ["en:milk"], "ingredients_tags": [
+        "en:hydrolysed-whey-protein-isolate", "en:whey-protein-isolate", "en:whey", "en:milk-proteins", "en:dairy",
+        "en:cocoa"]}, Dairy.ISOLATE),
+    ({"allergens_tags": ["en:milk"], "ingredients_tags": ["pt:proteina-isolada-do-soro-de-leite-hidrolisada"]},
+     Dairy.ISOLATE),
+    ({"allergens_tags": ["en:milk"], "ingredients_tags": ["en:whey-protein-isolate"]}, Dairy.CONTAINS),  # not hydr.
+    ({"allergens_tags": ["en:milk"], "ingredients_tags": [
+        "en:hydrolysed-whey-protein-isolate", "en:whey-protein-concentrate"]}, Dairy.CONTAINS),
+    # "hydrolysed" and "isolate" from different ingredients are not a whey isolate.
+    ({"product_name": "Protein blend", "allergens_tags": ["en:milk"],
+      "ingredients_text": "whey protein concentrate, hydrolysed collagen, soy protein isolate",
+      "ingredients_tags": ["en:whey-protein-concentrate", "en:hydrolysed-collagen", "en:soy-protein-isolate"]},
+     Dairy.CONTAINS),
 ])
 def test_classify_dairy(product, expected):
     assert classify_dairy(product)[0] == expected
+
+
+def test_boer_lean_mass_stays_below_body_weight():
+    for w, h, sex in ((55, 190, "male"), (50, 200, "male"), (40, 185, "female"), (150, 150, "female")):
+        lbm = lean_mass(w, None, h, sex)
+        assert lbm.source == "boer" and 0.5 * w - 0.05 <= lbm.kg <= 0.95 * w + 0.05, (w, h, sex, lbm)
+    assert lean_mass(90, None, 180, "male").kg == pytest.approx(0.407 * 90 + 0.267 * 180 - 19.2, abs=0.1)
+
+
+def test_audit_without_targets_does_not_flag_calories():
+    t = targets(lean_mass(90, 12, None, None), 0)
+    zero = replace(t, total=replace(t.total, kcal=0))
+    assert "kcal_over" not in {a.code for a in audit([e(Meal.BREAKFAST)], zero).alerts}
+
+
+def test_carb_curfew_exempts_fibrous_vegetables_only():
+    t = targets(lean_mass(90, 12, None, None), 0)
+
+    def staple(sid, grams, meal=Meal.DINNER):
+        st = STAPLES[sid]
+        return entry_from_per100(id=sid, meal=meal, name=st.name, grams=grams, kcal=st.kcal, protein=st.protein,
+                                 carbs=st.carbs, fat=st.fat, sodium_mg=st.sodium_mg, dairy=st.dairy,
+                                 category=st.category)
+
+    greens = [staple("broccoli", 300), staple("brussels_sprouts", 300), staple("spinach", 300, Meal.SNACK)]
+    assert "carb_curfew" not in {a.code for a in audit(greens, t).alerts}
+    assert "carb_curfew" in {a.code for a in audit([*greens, staple("sweet_potato", 100)], t).alerts}
 
 
 def test_parse_product_sodium_from_salt_and_kj():

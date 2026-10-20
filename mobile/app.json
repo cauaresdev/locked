@@ -28,6 +28,7 @@
         "android.permission.health.READ_HEART_RATE_VARIABILITY",
         "android.permission.health.READ_SLEEP",
         "android.permission.health.READ_RESTING_HEART_RATE",
+        "android.permission.health.READ_WEIGHT",
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.POST_NOTIFICATIONS"
       ]
@@ -61,7 +62,8 @@
         {
           "color": "#D97706",
           "sounds": [
-            "./assets/sounds/alarm.wav"
+            "./assets/sounds/alarm.wav",
+            "./assets/sounds/rest.wav"
           ]
         }
       ],
@@ -83,7 +85,7 @@
       [
         "@kingstinct/react-native-healthkit",
         {
-          "NSHealthShareUsageDescription": "Ler VFC, frequência cardíaca de repouso e sono para o Readiness Score.",
+          "NSHealthShareUsageDescription": "Ler VFC (variabilidade da frequência cardíaca), frequência cardíaca de repouso, sono e peso para a prontidão e as metas da dieta.",
           "NSHealthUpdateUsageDescription": false,
           "background": false
         }

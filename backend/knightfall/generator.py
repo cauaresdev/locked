@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from .catalog import EXERCISES, RxTemplate
-from .chaos import DaySelection, select_day
+from .chaos import DaySelection, Equipment, available, candidates, select_day
 from .domain import (
     Block,
     BlockKind,
@@ -15,6 +15,7 @@ from .domain import (
     Implement,
     Modality,
     Mode,
+    Pattern,
     Prescription,
     ReadinessSummary,
     Session,
@@ -23,7 +24,14 @@ from .domain import (
 from .progression import recommend_load
 from .records import SetRecord
 from .templates import TEMPLATES, Variant
-from .tiers import AMRAP_ROUND_REST_SECONDS, REST_CAP_SECONDS, TIERS, TierConfig
+from .tiers import (
+    AMRAP_ROUND_REST_SECONDS,
+    DELOAD_RPE_DELTA,
+    DELOAD_SET_MULTIPLIER,
+    REST_CAP_SECONDS,
+    TIERS,
+    TierConfig,
+)
 
 TARGET_RPE: dict[Modality, float] = {
     Modality.STRENGTH: 8,
@@ -33,6 +41,20 @@ TARGET_RPE: dict[Modality, float] = {
 }
 
 RECOVERY_DRILLS = ("worlds_greatest_stretch", "hip_90_90", "t_spine_rotation", "brettzel_stretch")
+
+IMPLEMENT_LABEL: dict[Implement, str] = {
+    Implement.BARBELL: "barra",
+    Implement.DUMBBELL: "halteres",
+    Implement.KETTLEBELL: "kettlebell",
+    Implement.CABLE: "polia (cabo)",
+    Implement.MACHINE: "máquina",
+    Implement.BODYWEIGHT: "peso corporal",
+    Implement.SLED: "trenó",
+    Implement.TRAP_BAR: "barra hexagonal (trap bar)",
+    Implement.BAND: "elástico",
+    Implement.ROLLER: "rolo de liberação miofascial",
+    Implement.ERGOMETER: "ergômetro (bike ou elíptico)",
+}
 
 
 @dataclass(frozen=True)
@@ -77,7 +99,7 @@ def build_rx(
     ex = EXERCISES[variant[0]]
     tpl: RxTemplate = ex.variants[variant[1]]
     sets = max(1, _round_half_up(tpl.sets * set_multiplier) + set_delta)
-    rpe = TARGET_RPE.get(variant[1]) if ex.implement != Implement.ERGOMETER else None
+    rpe = TARGET_RPE.get(variant[1]) if ex.implement != Implement.ERGOMETER and ex.pattern != Pattern.SPRINT else None
     if rpe is not None:
         rpe = max(5.0, rpe + rpe_delta)
     return Prescription(
@@ -97,7 +119,7 @@ def build_rx(
         tempo=tpl.tempo,
         unilateral=ex.unilateral,
         target_rpe=rpe,
-        suggested_load_kg=recommend_load(ex, history, _target_reps(tpl), rpe, bodyweight_kg),
+        suggested_load_kg=recommend_load(ex, history, _target_reps(tpl), rpe, bodyweight_kg, variant[1]),
         intensity=tpl.intensity,
         cues=list(tpl.cues),
     )
@@ -120,7 +142,7 @@ def _prep_block(cfg: TierConfig, sel: DaySelection, expanded: bool) -> Block:
     return Block(
         order=1,
         kind=BlockKind.PREP,
-        name="Warm-up, Tissue & Movement Prep",
+        name="Aquecimento, tecidos e preparação de movimento",
         duration_minutes=minutes,
         execution_style=ExecutionStyle.CHECKLIST,
         mandatory_lock=True,
@@ -129,11 +151,35 @@ def _prep_block(cfg: TierConfig, sel: DaySelection, expanded: bool) -> Block:
     )
 
 
-def _recovery_session(cfg: TierConfig, pos: CyclePosition, readiness: ReadinessSummary | None) -> Session:
+def missing_equipment_notices(blocks: Sequence[Block], equipment: Equipment) -> list[str]:
+    """Exercises that fell back to an implement outside the athlete's equipment profile."""
+    missing: dict[Implement, list[str]] = {}
+    for b in blocks:
+        for rx in b.exercises:
+            if not available(rx.exercise_id, equipment) and rx.name not in missing.get(rx.implement, []):
+                missing.setdefault(rx.implement, []).append(rx.name)
+    return [f"Seu perfil de equipamentos não tem {IMPLEMENT_LABEL[imp]}: {', '.join(names)} entrou mesmo assim "
+            "porque esse padrão de movimento não tem opção sem ele. Use \"Trocar exercício\" ou adapte."
+            for imp, names in missing.items()]
+
+
+def _recovery_session(cfg: TierConfig, pos: CyclePosition, readiness: ReadinessSummary | None,
+                      equipment: Equipment = None) -> Session:
     exercises = [
         build_rx(("easy_walk", Modality.CONDITIONING)),
         build_rx(("rumble_roller_full", Modality.PREP), duration_seconds=600),
         *(build_rx((d, Modality.PREP)) for d in RECOVERY_DRILLS),
+    ]
+    blocks = [
+        Block(
+            order=1,
+            kind=BlockKind.RECOVERY,
+            name="Recuperação ativa",
+            duration_minutes=45,
+            execution_style=ExecutionStyle.CHECKLIST,
+            rest_seconds=0,
+            exercises=exercises,
+        )
     ]
     return Session(
         protocol_id=cfg.protocol_id,
@@ -143,22 +189,36 @@ def _recovery_session(cfg: TierConfig, pos: CyclePosition, readiness: ReadinessS
         cycle_length=cfg.cycle_length,
         cycle_structure=cfg.cycle_structure,
         is_training_day=False,
-        day_name="Active Recovery",
+        day_name="Recuperação ativa",
         target_duration_minutes=45,
         rest_cap_seconds=REST_CAP_SECONDS,
         readiness=readiness,
-        blocks=[
-            Block(
-                order=1,
-                kind=BlockKind.RECOVERY,
-                name="Active Recovery",
-                duration_minutes=45,
-                execution_style=ExecutionStyle.CHECKLIST,
-                rest_seconds=0,
-                exercises=exercises,
-            )
-        ],
+        notices=missing_equipment_notices(blocks, equipment),
+        blocks=blocks,
     )
+
+
+def is_scheduled_deload(cfg: TierConfig, cycle_index: int) -> bool:
+    return cycle_index > 0 and (cycle_index + 1) % cfg.deload_every_cycles == 0
+
+
+@dataclass(frozen=True)
+class StrengthParams:
+    deload: bool
+    set_multiplier: float
+    set_delta: int
+    rpe_delta: float
+
+
+def _strength_params(
+    cfg: TierConfig, pos: CyclePosition, readiness: ReadinessSummary | None, low_readiness_streak: bool
+) -> StrengthParams:
+    level = readiness.level if readiness else "green"
+    deload = is_scheduled_deload(cfg, pos.cycle_index) or low_readiness_streak
+    if deload:  # replaces the readiness trim rather than stacking on it
+        return StrengthParams(True, cfg.set_multiplier * DELOAD_SET_MULTIPLIER, 0, DELOAD_RPE_DELTA)
+    return StrengthParams(False, cfg.set_multiplier, -1 if level == "red" else 0,
+                          -1 if level in ("amber", "red") else 0)
 
 
 def generate_session(
@@ -170,29 +230,31 @@ def generate_session(
     history: Sequence[SetRecord] = (),
     weeks_in_tier: int = 0,
     bodyweight_kg: float | None = None,
+    low_readiness_streak: bool = False,
+    equipment: Equipment = None,
 ) -> Session:
     cfg = TIERS[tier]
     if not 1 <= pos.cycle_day <= cfg.cycle_length:
         raise ValueError(f"cycle_day must be within 1..{cfg.cycle_length}")
     template_id = cfg.cycle[pos.cycle_day - 1]
     if template_id is None:
-        return _recovery_session(cfg, pos, readiness)
+        return _recovery_session(cfg, pos, readiness, equipment)
 
-    sel = select_day(seed, template_id, pos.cycle_index)
+    sel = select_day(seed, template_id, pos.cycle_index, equipment)
     level = readiness.level if readiness else "green"
     expanded = level == "red"
-    rpe_delta = -1 if level in ("amber", "red") else 0
-    set_delta = -1 if level == "red" else 0
+    p = _strength_params(cfg, pos, readiness, low_readiness_streak)
+    deload, set_multiplier, set_delta, rpe_delta = p.deload, p.set_multiplier, p.set_delta, p.rpe_delta
 
     strength = Block(
         order=2,
         kind=BlockKind.STRENGTH,
-        name="Torso, Structural Stability & Raw Strength",
+        name="Tronco, estabilidade e força bruta",
         duration_minutes=cfg.strength_minutes,
         execution_style=ExecutionStyle.STRAIGHT_SETS,
         rest_seconds=cfg.rest_seconds,
         exercises=[
-            build_rx(v, set_multiplier=cfg.set_multiplier, set_delta=set_delta, rpe_delta=rpe_delta,
+            build_rx(v, set_multiplier=set_multiplier, set_delta=set_delta, rpe_delta=rpe_delta,
                      history=history, bodyweight_kg=bodyweight_kg)
             for v in sel.strength
         ],
@@ -200,7 +262,7 @@ def generate_session(
     conditioning = Block(
         order=3,
         kind=BlockKind.CONDITIONING,
-        name="Strength & Metabolic Conditioning (AMRAP)",
+        name="Força e condicionamento (AMRAP: máximo de rodadas no tempo)",
         duration_minutes=cfg.conditioning_minutes,
         execution_style=ExecutionStyle.AMRAP,
         rest_seconds=AMRAP_ROUND_REST_SECONDS,
@@ -209,6 +271,12 @@ def generate_session(
     prep = _prep_block(cfg, sel, expanded)
 
     notices: list[str] = []
+    if deload:
+        scheduled = is_scheduled_deload(cfg, pos.cycle_index)
+        why = (f"programado a cada {cfg.deload_every_cycles} ciclos" if scheduled
+               else f"3 dias seguidos de prontidão baixa; vale por {cfg.cycle_length} dias")
+        notices.append(f"Deload (semana de descarga, {why}): menos séries no Bloco 2 e esforço alvo 2 pontos "
+                       "mais baixo, para o corpo absorver o treino.")
     if expanded:
         notices.append("Prontidão baixa: Bloco 1 expandido e volume do Bloco 2 reduzido.")
     if cfg.max_recommended_weeks and weeks_in_tier >= cfg.max_recommended_weeks:
@@ -216,6 +284,7 @@ def generate_session(
             f"{weeks_in_tier} semanas em {cfg.tier.value}: o protocolo integral é recomendado para "
             f"ciclos de até {cfg.max_recommended_weeks} semanas. Considere descer de tier."
         )
+    notices += missing_equipment_notices([prep, strength, conditioning], equipment)
 
     return Session(
         protocol_id=cfg.protocol_id,
@@ -229,6 +298,59 @@ def generate_session(
         target_duration_minutes=prep.duration_minutes + cfg.strength_minutes + cfg.conditioning_minutes,
         rest_cap_seconds=REST_CAP_SECONDS,
         readiness=readiness,
+        deload=deload,
         notices=notices,
         blocks=[prep, strength, conditioning],
     )
+
+
+MAX_ALTERNATIVES = 8
+
+
+def alternatives(
+    tier: Tier,
+    pos: CyclePosition,
+    seed: str,
+    block_order: int,
+    index: int,
+    *,
+    readiness: ReadinessSummary | None = None,
+    history: Sequence[SetRecord] = (),
+    bodyweight_kg: float | None = None,
+    low_readiness_streak: bool = False,
+    equipment: Equipment = None,
+) -> list[Prescription]:
+    """Swaps for one exercise of the strength or conditioning block: same movement pattern,
+    other exercises the athlete has equipment for, prescribed with the block's parameters."""
+    cfg = TIERS[tier]
+    if not 1 <= pos.cycle_day <= cfg.cycle_length:
+        raise ValueError(f"cycle_day must be within 1..{cfg.cycle_length}")
+    template_id = cfg.cycle[pos.cycle_day - 1]
+    if template_id is None:
+        raise ValueError("recovery days have no swappable exercises")
+    session = generate_session(tier, pos, seed, readiness=readiness, history=history, bodyweight_kg=bodyweight_kg,
+                               low_readiness_streak=low_readiness_streak, equipment=equipment)
+    block = next((b for b in session.blocks if b.order == block_order), None)
+    if block is None or block.kind not in (BlockKind.STRENGTH, BlockKind.CONDITIONING):
+        raise ValueError("only strength and conditioning exercises can be swapped")
+    slots = TEMPLATES[template_id].strength if block.kind == BlockKind.STRENGTH else TEMPLATES[template_id].conditioning
+    if not 0 <= index < len(slots):
+        raise ValueError("no exercise at that position")
+    slot = slots[index]
+    current = block.exercises[index]
+    in_session = {rx.name for b in session.blocks for rx in b.exercises}  # names: one movement can have two ids
+
+    # One option per exercise, preferring the modality the slot has today.
+    best: dict[str, Variant] = {}
+    for v in candidates(slot.pattern, slot.modalities, equipment, stand_ins=True):
+        if EXERCISES[v[0]].name in in_session:
+            continue
+        if v[0] not in best or v[1] == current.modality:
+            best[v[0]] = v
+    if block.kind == BlockKind.STRENGTH:
+        p = _strength_params(cfg, pos, readiness, low_readiness_streak)
+        kw = dict(set_multiplier=p.set_multiplier, set_delta=p.set_delta, rpe_delta=p.rpe_delta)
+    else:
+        kw = {}
+    options = [build_rx(v, history=history, bodyweight_kg=bodyweight_kg, **kw) for v in best.values()]
+    return sorted(options, key=lambda rx: rx.name)[:MAX_ALTERNATIVES]

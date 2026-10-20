@@ -2,21 +2,22 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'ex
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ApiError, api } from '../api/client';
 import type { Alert, Meal, Product } from '../api/types';
-import { Badge, Button, Field, Panel, Row, T } from '../components/ui';
-import { isoDay } from '../engine/format';
+import { Button, Chip, Field, Panel, Row, T } from '../components/ui';
+import { isoDay, parseDecimal } from '../engine/format';
 import { MEAL_LABEL, entryFromProduct, portionAlerts } from '../engine/nutrition';
 import { cachedNutrition, enqueueFood, storedAthlete } from '../storage/db';
-import { flushFood } from '../sync';
+import { flushNutrition } from '../sync';
 import { colors, space } from '../theme';
 
 const MEALS: Meal[] = ['breakfast', 'post_workout', 'snack', 'dinner'];
 const LEVEL_COLOR = { red: colors.red, amber: colors.amber, info: colors.concrete } as const;
+const LEVEL_TEXT = { red: colors.redText, amber: colors.amber, info: colors.concrete } as const;
 
 export default function Scan() {
   const router = useRouter();
@@ -30,15 +31,23 @@ export default function Scan() {
   const [grams, setGrams] = useState('100');
   const [meal, setMeal] = useState<Meal>(params.meal ?? 'breakfast');
   const [mealSodium, setMealSodium] = useState<Record<Meal, number>>({ breakfast: 0, post_workout: 0, snack: 0, dinner: 0 });
+  const [torch, setTorch] = useState(false);
 
   useEffect(() => {
-    cachedNutrition(day).then((d) => {
-      if (d) setMealSodium(Object.fromEntries(d.meals.map((m) => [m.meal, m.consumed.sodium_mg])) as Record<Meal, number>);
-    });
+    cachedNutrition(day)
+      .then((d) => {
+        if (d) setMealSodium(Object.fromEntries(d.meals.map((m) => [m.meal, m.consumed.sodium_mg])) as Record<Meal, number>);
+      })
+      .catch(() => {}); // no cached day: the portion alerts count from zero
   }, [day]);
 
+  // The camera fires several events per barcode before React re-renders: a ref, not state, gates them.
+  const scanned = useRef(false);
+  const adding = useRef(false);
+
   async function onScanned(r: BarcodeScanningResult) {
-    if (code) return;
+    if (scanned.current) return;
+    scanned.current = true;
     setCode(r.data);
     setError(null);
     try {
@@ -46,26 +55,37 @@ export default function Scan() {
       setProduct(p);
       if (p.serving_g) setGrams(String(p.serving_g));
       const red = p.alerts.some((a) => a.level === 'red');
-      Haptics.notificationAsync(red ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success);
+      Haptics.notificationAsync(red ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success)
+        .catch(() => {});
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Sem conexão: registre o alimento manualmente.');
     }
   }
 
   function reset() {
+    scanned.current = false;
     setCode(null);
     setProduct(null);
     setError(null);
   }
 
   async function add() {
-    if (!product || !athlete) return;
-    await enqueueFood(entryFromProduct(Crypto.randomUUID(), day, meal, product, Number(grams.replace(',', '.'))));
-    await flushFood(athlete.id);
+    if (!product || !athlete || adding.current || g <= 0) return;
+    adding.current = true;
+    try {
+      await enqueueFood(entryFromProduct(Crypto.randomUUID(), day, meal, product, g));
+    } catch {
+      adding.current = false;
+      setError('Não foi possível salvar no aparelho. Tente de novo.');
+      return;
+    }
+    Haptics.selectionAsync().catch(() => {});
+    // Saved locally: close now and upload in the background instead of waiting on the network.
+    flushNutrition(athlete.id).catch(() => {});
     router.back();
   }
 
-  const g = Number(grams.replace(',', '.')) || 0;
+  const g = parseDecimal(grams) ?? 0;
   // Product-level alerts from the server, plus this portion against what the meal already has.
   const alerts: Alert[] = product?.found
     ? [
@@ -91,9 +111,17 @@ export default function Scan() {
     <SafeAreaView style={styles.root}>
       <Row style={{ justifyContent: 'space-between', padding: space.lg }}>
         <T variant="title" style={{ fontSize: 18 }}>Scanner</T>
-        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button">
-          <T variant="label">Fechar</T>
-        </Pressable>
+        <Row style={{ gap: space.xl }}>
+          {!code && (
+            <Pressable onPress={() => setTorch((t) => !t)} hitSlop={14} accessibilityRole="switch"
+              accessibilityLabel="Lanterna" accessibilityState={{ checked: torch }}>
+              <T variant="label" color={torch ? colors.amber : colors.concrete}>{torch ? 'Lanterna ligada' : 'Lanterna'}</T>
+            </Pressable>
+          )}
+          <Pressable onPress={() => router.back()} hitSlop={14} accessibilityRole="button">
+            <T variant="label">Fechar</T>
+          </Pressable>
+        </Row>
       </Row>
 
       {!code && (
@@ -101,6 +129,7 @@ export default function Scan() {
           <CameraView
             style={StyleSheet.absoluteFill}
             facing="back"
+            enableTorch={torch}
             barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'] }}
             onBarcodeScanned={onScanned}
           />
@@ -110,7 +139,8 @@ export default function Scan() {
       )}
 
       {code && (
-        <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md }} keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets>
           <T variant="label">EAN {code}</T>
           {!product && !error && <T color={colors.concrete}>Consultando base de alimentos…</T>}
           {error && <Panel accent={colors.amber}><T color={colors.amber}>{error}</T></Panel>}
@@ -127,21 +157,19 @@ export default function Scan() {
               <Panel accent={red ? colors.red : colors.kryptonite}>
                 <T style={{ fontSize: 16 }}>{product.name}</T>
                 {product.brand && <T variant="label">{product.brand}</T>}
-                <T variant="label" style={{ textTransform: 'none' }}>
-                  /100 g · {product.kcal_100g ?? '?'} kcal · P {product.protein_100g ?? '?'} · C {product.carbs_100g ?? '?'} ·
-                  G {product.fat_100g ?? '?'} · Na {product.sodium_mg_100g ?? '?'} mg
+                <T variant="hint">
+                  /100 g · {product.kcal_100g ?? '?'} kcal · proteína {product.protein_100g ?? '?'} g · carboidrato{' '}
+                  {product.carbs_100g ?? '?'} g · gordura {product.fat_100g ?? '?'} g · sódio {product.sodium_mg_100g ?? '?'} mg
                 </T>
               </Panel>
               {alerts.map((a, i) => (
                 <Panel key={i} accent={LEVEL_COLOR[a.level]}>
-                  <T color={LEVEL_COLOR[a.level]}>{a.message}</T>
+                  <T color={LEVEL_TEXT[a.level]}>{a.message}</T>
                 </Panel>
               ))}
-              <Row style={{ flexWrap: 'wrap' }}>
+              <Row style={{ flexWrap: 'wrap', gap: space.xs }}>
                 {MEALS.map((m) => (
-                  <Pressable key={m} onPress={() => setMeal(m)} accessibilityRole="radio" accessibilityState={{ selected: m === meal }}>
-                    <Badge label={MEAL_LABEL[m]} color={m === meal ? colors.bone : colors.seam} />
-                  </Pressable>
+                  <Chip key={m} label={MEAL_LABEL[m]} selected={m === meal} onPress={() => setMeal(m)} />
                 ))}
               </Row>
               <Row style={{ alignItems: 'flex-end' }}>

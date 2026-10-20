@@ -25,7 +25,7 @@ export function FoodPicker({
   day: string;
   suggestions: Staple[];
   newId: () => string;
-  onAdd: (e: FoodEntryInput) => void;
+  onAdd: (e: FoodEntryInput) => void | Promise<unknown>;
   onClose: () => void;
 }) {
   const [all, setAll] = useState<Staple[]>(suggestions);
@@ -53,7 +53,8 @@ export function FoodPicker({
             <T variant="label">Fechar</T>
           </Pressable>
         </Row>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets>
           <Row>
             <Button tone={manual ? 'ghost' : 'primary'} label="Protocolo" onPress={() => setManual(false)} style={{ flex: 1 }} />
             <Button tone={manual ? 'primary' : 'ghost'} label="Manual" onPress={() => setManual(true)} style={{ flex: 1 }} />
@@ -63,25 +64,36 @@ export function FoodPicker({
             ordered.map((s) => {
               const selected = picked?.id === s.id;
               return (
-                <Pressable key={s.id} onPress={() => { setPicked(s); setGrams(String(s.default_g)); }}
-                  accessibilityRole="button">
-                  <Panel accent={selected ? colors.bone : undefined}>
+                <Panel key={s.id} accent={selected ? colors.bone : undefined}>
+                  {/* Only the header picks the staple: taps in the open editor must not reset the grams. */}
+                  <Pressable
+                    onPress={() => {
+                      if (selected) return;
+                      setPicked(s);
+                      setGrams(String(s.default_g));
+                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: selected }}
+                    style={{ gap: space.sm }}
+                  >
                     <Row style={{ justifyContent: 'space-between' }}>
                       <T style={{ flex: 1 }}>{s.name}</T>
                       {ids.has(s.id) && <Badge label="Sugerido" />}
                     </Row>
-                    <T variant="label" style={{ textTransform: 'none' }}>
-                      /100 g · {s.kcal} kcal · P {s.protein} · C {s.carbs} · G {s.fat} · Na {s.sodium_mg} mg
+                    <T variant="hint">
+                      /100 g · {s.kcal} kcal · proteína {s.protein} g · carboidrato {s.carbs} g · gordura {s.fat} g ·
+                      sódio {s.sodium_mg} mg
                     </T>
-                    {selected && (
-                      <Row style={{ alignItems: 'flex-end' }}>
-                        <Field label="Gramas" value={grams} onChangeText={setGrams} keyboardType="decimal-pad" autoFocus />
-                        <Button label="Adicionar" disabled={!num(grams)} style={{ flex: 1 }}
-                          onPress={() => onAdd(entryFromStaple(newId(), day, meal, s, num(grams)))} />
-                      </Row>
-                    )}
-                  </Panel>
-                </Pressable>
+                  </Pressable>
+                  {selected && (
+                    <Row style={{ alignItems: 'flex-end' }}>
+                      <Field label="Gramas" accessibilityLabel={`Gramas de ${s.name}`} value={grams} onChangeText={setGrams}
+                        keyboardType="decimal-pad" autoFocus />
+                      <Button label="Adicionar" disabled={!num(grams)} style={{ flex: 1 }}
+                        onPress={() => onAdd(entryFromStaple(newId(), day, meal, s, num(grams)))} />
+                    </Row>
+                  )}
+                </Panel>
               );
             })}
 
@@ -90,13 +102,13 @@ export function FoodPicker({
               <Field label="Alimento" value={m.name} onChangeText={(v) => setM({ ...m, name: v })} />
               <Row>
                 <Field label="Gramas" value={m.grams} onChangeText={(v) => setM({ ...m, grams: v })} keyboardType="decimal-pad" />
-                <Field label="kcal" value={m.kcal} onChangeText={(v) => setM({ ...m, kcal: v })} keyboardType="decimal-pad" />
-                <Field label="Sódio mg" value={m.na} onChangeText={(v) => setM({ ...m, na: v })} keyboardType="decimal-pad" />
+                <Field label="Calorias (kcal)" value={m.kcal} onChangeText={(v) => setM({ ...m, kcal: v })} keyboardType="decimal-pad" />
+                <Field label="Sódio (mg)" value={m.na} onChangeText={(v) => setM({ ...m, na: v })} keyboardType="decimal-pad" />
               </Row>
               <Row>
-                <Field label="Prot g" value={m.p} onChangeText={(v) => setM({ ...m, p: v })} keyboardType="decimal-pad" />
-                <Field label="Carb g" value={m.c} onChangeText={(v) => setM({ ...m, c: v })} keyboardType="decimal-pad" />
-                <Field label="Gord g" value={m.f} onChangeText={(v) => setM({ ...m, f: v })} keyboardType="decimal-pad" />
+                <Field label="Proteína (g)" value={m.p} onChangeText={(v) => setM({ ...m, p: v })} keyboardType="decimal-pad" />
+                <Field label="Carboidrato (g)" value={m.c} onChangeText={(v) => setM({ ...m, c: v })} keyboardType="decimal-pad" />
+                <Field label="Gordura (g)" value={m.f} onChangeText={(v) => setM({ ...m, f: v })} keyboardType="decimal-pad" />
               </Row>
               <T variant="label">Valores para a porção informada</T>
               <Divider />

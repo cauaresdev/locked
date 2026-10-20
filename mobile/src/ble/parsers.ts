@@ -104,3 +104,14 @@ export function shortUuid(uuid: string): string {
   const m = /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/.exec(u);
   return m ? m[1] : u;
 }
+
+/**
+ * The scan list with this advertisement merged in, strongest signal first, or null when
+ * nothing worth a re-render changed: devices advertise several times a second and RSSI
+ * jitters by a few dBm.
+ */
+export function mergeAdvert<D extends { id: string; rssi: number }>(list: D[], d: D, minRssiStep = 4): D[] | null {
+  const known = list.find((x) => x.id === d.id);
+  if (known && Math.abs(known.rssi - d.rssi) < minRssiStep) return null;
+  return [...list.filter((x) => x.id !== d.id), d].sort((a, b) => b.rssi - a.rssi);
+}

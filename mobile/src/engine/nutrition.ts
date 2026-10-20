@@ -116,3 +116,25 @@ export function withPending(day: NutritionDay, pending: FoodEntryInput[]): Nutri
     })),
   };
 }
+
+const subTotals = (t: Totals, e: FoodEntry): Totals => ({
+  kcal: Math.max(0, Math.round(t.kcal - e.kcal)),
+  protein_g: Math.max(0, Math.round(t.protein_g - e.protein_g)),
+  carbs_g: Math.max(0, Math.round(t.carbs_g - e.carbs_g)),
+  fat_g: Math.max(0, Math.round(t.fat_g - e.fat_g)),
+  sodium_mg: Math.max(0, Math.round(t.sodium_mg - e.sodium_mg)),
+});
+
+/** Hide entries removed while their server delete is still queued. */
+export function withoutDeleted(day: NutritionDay, deleted: string[]): NutritionDay {
+  const ids = new Set(deleted);
+  const gone = day.entries.filter((e) => ids.has(e.id));
+  if (gone.length === 0) return day;
+  return {
+    ...day,
+    entries: day.entries.filter((e) => !ids.has(e.id)),
+    alerts: day.alerts.filter((a) => !a.entry_id || !ids.has(a.entry_id)),
+    consumed: gone.reduce(subTotals, day.consumed),
+    meals: day.meals.map((m) => ({ ...m, consumed: gone.filter((e) => e.meal === m.meal).reduce(subTotals, m.consumed) })),
+  };
+}

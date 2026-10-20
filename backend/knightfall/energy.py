@@ -2,8 +2,14 @@
 
 - HRmax: athlete override, else Tanaka (208 - 0.7 x age).
 - kcal from HR: Keytel et al. (2005) prediction equations, integrated over
-  samples (gaps capped so a dropped strap does not invent work).
+  samples (gaps capped so a dropped strap does not invent work). Keytel is
+  gross expenditure; the nutrition floor already covers resting energy, so
+  only the net part (minus 1 MET) is counted, and only for samples at or above
+  50 % of HRmax (90 bpm when HRmax is unknown), where the equation was fitted.
 - Fallback without HR telemetry: net MET estimate of the planned session.
+- Keytel was validated on steady aerobic work. Lifting raises heart rate
+  through pressor and adrenergic responses, not oxygen uptake, so during the
+  strength block it overestimates; that stretch is costed with a MET value.
 """
 
 from __future__ import annotations
@@ -15,7 +21,15 @@ from datetime import datetime
 MAX_SAMPLE_GAP_S = 5.0
 ZONE_BOUNDS = (0.5, 0.6, 0.7, 0.8, 0.9)  # Z1..Z5 lower bounds as fraction of HRmax
 SESSION_MET = 6.0  # vigorous resistance + conditioning mix
+STRENGTH_MET = 5.0  # resistance training with rest periods (Compendium of Physical Activities)
 RECOVERY_MET = 3.0
+ACTIVE_HR_FRACTION = ZONE_BOUNDS[0]  # below Z1, heart rate is not exercise
+ACTIVE_HR_BPM = 90  # same threshold without an HRmax
+
+
+def resting_kcal_per_min(weight_kg: float) -> float:
+    """1 MET: ~1 kcal per kg per hour."""
+    return weight_kg / 60
 
 
 def hr_max(age: int | None, override: int | None) -> int | None:
@@ -63,7 +77,7 @@ class HrSummary:
     avg_hr: float | None
     max_hr: float | None
     minutes_by_zone: dict[int, float]
-    kcal: float | None
+    kcal: float | None  # net of resting energy
 
 
 def summarize_hr(
@@ -83,7 +97,10 @@ def summarize_hr(
         zones = {z: round(m, 1) for z, m in sorted(zones.items())}
     kcal = None
     if age is not None and sex in ("male", "female"):
-        kcal = round(sum(keytel_kcal_per_min(s.value, weight_kg, age, sex) * d / 60 for s, d in zip(samples, secs)))
+        active = hrmax * ACTIVE_HR_FRACTION if hrmax else ACTIVE_HR_BPM
+        rest = resting_kcal_per_min(weight_kg)
+        kcal = round(sum(max(0.0, keytel_kcal_per_min(s.value, weight_kg, age, sex) - rest) * d / 60
+                         for s, d in zip(samples, secs) if s.value >= active))
     return HrSummary(len(samples), round(avg, 1) if avg else None, max(s.value for s in samples), zones, kcal)
 
 

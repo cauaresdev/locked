@@ -46,9 +46,29 @@ def alarm(path: Path, seconds: float = 4.0) -> None:
         w.writeframes(bytes(frames))
 
 
+def pulses(path: Path, freq: float, ms: int, count: int, gap_ms: int, volume: float = 0.8) -> None:
+    """Repeated beeps: loud enough to hear from a pocket when rest ends with the screen locked."""
+    n = int(RATE * ms / 1000)
+    frames = bytearray()
+    for k in range(count):
+        for i in range(n):
+            env = min(1.0, i / 40) * min(1.0, (n - i) / 200)
+            s = math.sin(2 * math.pi * freq * i / RATE)
+            s = math.copysign(min(1.0, abs(s) * 3), s)
+            frames += struct.pack("<h", int(32767 * volume * env * s))
+        if k < count - 1:
+            frames += b"\x00\x00" * int(RATE * gap_ms / 1000)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes(bytes(frames))
+
+
 if __name__ == "__main__":
     out = Path(sys.argv[1])
     beep(out / "tick.wav", 1000, 35)
     beep(out / "phase.wav", 1600, 90)
     beep(out / "done.wav", 600, 250)
     alarm(out / "alarm.wav")
+    pulses(out / "rest.wav", 1200, 160, 3, 120)

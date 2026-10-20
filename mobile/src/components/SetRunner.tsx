@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Prescription } from '../api/types';
-import { clock, repsToLog, workSeconds } from '../engine/format';
+import { clock, parseDecimal as num, repsToLog, workSeconds } from '../engine/format';
 import { PHASE_LABEL } from '../engine/tempo';
 import { useCountdown } from '../hooks/useCountdown';
 import { useCues } from '../hooks/useCues';
 import { useMetronome } from '../hooks/useMetronome';
-import { colors, space } from '../theme';
+import { colors, fonts, space } from '../theme';
 import { Button, Field, Panel, Row, T } from './ui';
 
 export interface SetResult {
@@ -17,7 +17,10 @@ export interface SetResult {
   rpe: number | null;
 }
 
-const num = (s: string) => (s.trim() ? Number(s.replace(',', '.')) : null);
+// Whole steps carry their reps in reserve; half steps sit between them, like keys on a piano.
+const RPE_WHOLE: [number, string][] = [[6, 'sobram 4+'], [7, 'sobram 3'], [8, 'sobram 2'], [9, 'sobra 1'], [10, 'falha']];
+const RPE_HALF = [6.5, 7.5, 8.5, 9.5];
+const fmt = (n: number) => String(n).replace('.', ',');
 
 /** Executes and logs one set: metronome for tempo work, countdown for timed/hold work. */
 export function SetRunner({
@@ -29,40 +32,73 @@ export function SetRunner({
   rx: Prescription;
   setNumber: number;
   defaultLoad: number | null;
-  onLog: (r: SetResult) => void;
+  onLog: (r: SetResult) => void | Promise<void>;
 }) {
   const [reps, setReps] = useState(String(repsToLog(rx) ?? ''));
   // Bodyweight lifts log added load; 0 still counts for e1RM (body mass is added server-side).
   const initialLoad = defaultLoad ?? (rx.implement === 'bodyweight' ? 0 : null);
-  const [load, setLoad] = useState(initialLoad != null ? String(initialLoad) : '');
-  const [rpe, setRpe] = useState(rx.target_rpe != null ? String(rx.target_rpe) : '');
+  const [load, setLoad] = useState(initialLoad != null ? fmt(initialLoad) : '');
+  // Never pre-filled with the target: an untouched default would log the plan instead of
+  // the effort, and every load suggestion is computed from these ratings.
+  const [rpe, setRpe] = useState<number | null>(null);
   const timed = rx.mode !== 'reps';
+  const needsRpe = rx.target_rpe != null;
 
   return (
     <Panel style={{ backgroundColor: colors.void }}>
       <T variant="label">Série {setNumber}/{rx.sets}</T>
       {rx.tempo && rx.mode === 'reps' && <Metronome rx={rx} />}
       {timed && <WorkTimer seconds={workSeconds(rx)} />}
-      {rx.cues.length > 0 && <T variant="label" style={{ textTransform: 'none' }}>▸ {rx.cues.join(' · ')}</T>}
+      {rx.cues.length > 0 && <T variant="hint">▸ {rx.cues.join(' · ')}</T>}
       <Row style={{ alignItems: 'flex-end' }}>
         {!timed && (
-          <Field label={rx.reps_per_side ? 'Reps/lado' : 'Reps'} value={reps} onChangeText={setReps} keyboardType="number-pad" />
+          <Field label={rx.reps_per_side ? 'Repetições por lado' : 'Repetições'} value={reps} onChangeText={setReps}
+            keyboardType="number-pad" />
         )}
-        <Field label={rx.implement === 'bodyweight' ? 'Lastro kg' : 'Carga kg'} value={load} onChangeText={setLoad} keyboardType="decimal-pad" placeholder="—" />
-        <Field label="RPE" value={rpe} onChangeText={setRpe} keyboardType="decimal-pad" placeholder="—" />
+        <Field label={rx.implement === 'bodyweight' ? 'Lastro (kg)' : 'Carga (kg)'} value={load} onChangeText={setLoad}
+          keyboardType="decimal-pad" placeholder="—" />
       </Row>
+      <RpePicker value={rpe} target={rx.target_rpe} onChange={setRpe} />
       <Button
-        label="Registrar série"
+        label={needsRpe && rpe == null ? 'Escolha o esforço' : 'Registrar série'}
+        disabled={needsRpe && rpe == null}
         onPress={() =>
           onLog({
             reps: timed ? null : num(reps),
             load_kg: num(load),
             duration_seconds: timed ? workSeconds(rx) : null,
-            rpe: num(rpe),
+            rpe,
           })
         }
       />
     </Panel>
+  );
+}
+
+/** Rate of perceived exertion, anchored on reps in reserve so the scale means the same every set. */
+function RpePicker({ value, target, onChange }: { value: number | null; target: number | null; onChange: (v: number) => void }) {
+  const key = (v: number, caption?: string, half?: boolean) => {
+    const on = value === v;
+    return (
+      <Pressable key={v} onPress={() => onChange(v)} accessibilityRole="radio" accessibilityState={{ checked: on }}
+        accessibilityLabel={`Esforço ${fmt(v)}${caption ? `, ${caption}` : ''}${v === target ? ', alvo' : ''}`}
+        style={[styles.rpeKey, half && styles.rpeHalf, on && styles.chipOn, v === target && !on && styles.chipTarget]}>
+        <Text style={[styles.chipText, half && { fontSize: 13 }, on && { color: colors.void }]}>{fmt(v)}</Text>
+        {caption && (
+          <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.rpeCaption, on && { color: colors.void }]}>{caption}</Text>
+        )}
+      </Pressable>
+    );
+  };
+  return (
+    <View style={{ gap: space.xs }} accessibilityRole="radiogroup">
+      <T variant="label">
+        Esforço percebido (RPE){target != null ? ` · alvo ${fmt(target)}` : ''}
+      </T>
+      <View style={styles.rpeRow}>{RPE_WHOLE.map(([v, caption]) => key(v, caption))}</View>
+      {/* Inset by half a key, so each half step lands between the two whole steps it splits. */}
+      <View style={[styles.rpeRow, { paddingHorizontal: '10%' }]}>{RPE_HALF.map((v) => key(v, undefined, true))}</View>
+    </View>
   );
 }
 
@@ -76,7 +112,7 @@ function Metronome({ rx }: { rx: Prescription }) {
         <T variant="hero" color={colors.amber}>{state.leadIn}</T>
       ) : m.running && state.phase ? (
         <>
-          <T variant="label">Rep {state.rep}/{reps}{rx.reps_per_side ? ' (por lado)' : ''}</T>
+          <T variant="label">Repetição {state.rep}/{reps}{rx.reps_per_side ? ' (por lado)' : ''}</T>
           <T variant="title">{PHASE_LABEL[state.phase]}</T>
           <T variant="hero">{state.secondInPhase}<T variant="metric" color={colors.concrete}>/{state.phaseSeconds}</T></T>
         </>
@@ -115,4 +151,12 @@ function WorkTimer({ seconds }: { seconds: number }) {
 
 const styles = StyleSheet.create({
   center: { alignItems: 'center', gap: space.sm, paddingVertical: space.sm },
+  rpeRow: { flexDirection: 'row', gap: space.xs },
+  rpeKey: { flex: 1, borderWidth: 1, borderColor: colors.seam, minHeight: 52, alignItems: 'center',
+    justifyContent: 'center', gap: 2 },
+  rpeHalf: { minHeight: 44 },
+  rpeCaption: { fontFamily: fonts.mono, fontSize: 10, color: colors.concrete },
+  chipOn: { backgroundColor: colors.bone, borderColor: colors.bone },
+  chipTarget: { borderColor: colors.concrete, borderStyle: 'dashed' },
+  chipText: { fontFamily: fonts.monoBold, fontSize: 15, color: colors.bone, fontVariant: ['tabular-nums'] },
 });

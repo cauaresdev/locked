@@ -57,7 +57,7 @@ TEMPLATES: dict[str, DayTemplate] = {
     for t in [
         DayTemplate(
             "D1",
-            "Pull + Carry",
+            "Puxar + Carregar",
             strength=(
                 slot(Pattern.CARRY, CARRY_MODS, ("db_farmers_walk", S)),
                 slot(Pattern.CORE_FLEXION, HEAVY, ("alt_hanging_knee_up", S)),
@@ -79,7 +79,7 @@ TEMPLATES: dict[str, DayTemplate] = {
         ),
         DayTemplate(
             "D2",
-            "Push + Anti-Rotation",
+            "Empurrar + Antirrotação",
             strength=(
                 slot(Pattern.CARRY, CARRY_MODS),
                 slot(Pattern.CORE_ANTI_ROTATION, HEAVY),
@@ -97,7 +97,7 @@ TEMPLATES: dict[str, DayTemplate] = {
         ),
         DayTemplate(
             "D3",
-            "Legs + Hinge",
+            "Pernas + Dobradiça de quadril",
             strength=(
                 slot(Pattern.CARRY, CARRY_MODS),
                 slot(Pattern.CORE_ANTI_ROTATION, HEAVY),
@@ -115,7 +115,7 @@ TEMPLATES: dict[str, DayTemplate] = {
         ),
         DayTemplate(
             "D4",
-            "Pull + Neck",
+            "Puxar + Pescoço",
             strength=(
                 slot(Pattern.CARRY, CARRY_MODS),
                 slot(Pattern.CORE_FLEXION, HEAVY),
@@ -133,7 +133,7 @@ TEMPLATES: dict[str, DayTemplate] = {
         ),
         DayTemplate(
             "D5",
-            "Push + Shoulders",
+            "Empurrar + Ombros",
             strength=(
                 slot(Pattern.CARRY, CARRY_MODS),
                 slot(Pattern.CORE_ANTI_ROTATION, HEAVY),
@@ -151,7 +151,7 @@ TEMPLATES: dict[str, DayTemplate] = {
         ),
         DayTemplate(
             "D6",
-            "Full-Body Chaos",
+            "Corpo inteiro (Caos)",
             strength=(
                 slot(Pattern.CARRY, CARRY_MODS),
                 slot(Pattern.CORE_FLEXION, HEAVY),

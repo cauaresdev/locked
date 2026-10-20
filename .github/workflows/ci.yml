@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# A new push to the same branch supersedes the run still in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: ubuntu-24.04
@@ -15,9 +20,64 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
       - run: pip install -e ".[dev]"
       - run: ruff check knightfall tests
       - run: pytest -q
+      - name: Mobile API schema is up to date
+        run: |
+          python -m knightfall.openapi > /tmp/openapi.json
+          diff -u ../mobile/src/api/openapi.json /tmp/openapi.json \
+            || (echo "::error::Run: python -m knightfall.openapi > mobile/src/api/openapi.json && npm run gen:api"; exit 1)
+
+  backend-postgres:
+    # Same image as docker-compose: exercises the TimescaleDB migrations too.
+    runs-on: ubuntu-24.04
+    services:
+      db:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: knightfall
+          POSTGRES_PASSWORD: knightfall
+          POSTGRES_DB: knightfall_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U knightfall"
+          --health-interval 5s
+          --health-retries 10
+    env:
+      KNIGHTFALL_TEST_DATABASE_URL: postgresql+psycopg://knightfall:knightfall@localhost:5432/knightfall_test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - run: pip install -e ".[dev,postgres]"
+      - run: pytest -q
+
+  docker:
+    # Builds the production image and checks it boots (SQLite fallback) and answers /health as non-root.
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t knightfall-api .
+      - run: |
+          docker run -d --name api -p 8000:8000 knightfall-api
+          for i in $(seq 30); do curl -fsS localhost:8000/health && break; sleep 1; done
+          test "$(docker exec api id -u)" = 10001
+          curl -fsS localhost:8000/health
+      - if: failure()
+        run: docker logs api
 
   mobile:
     runs-on: ubuntu-24.04
@@ -33,5 +93,7 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - name: Generated API types match the schema
+        run: npm run gen:api && git diff --exit-code src/api/schema.ts
       - run: npm run typecheck
       - run: npm test -- --ci

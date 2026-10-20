@@ -1,7 +1,8 @@
 """Armor Load — "Capacidade de Carga Operacional".
 
 Gamification metric (not physics): total load moved in carries, sled pushes
-and weighted pull-ups, expressed in kg·m. Timed carries/pushes without a
+and pull-ups (body mass plus any added load, so unweighted reps count too),
+expressed in kg·m. Timed carries/pushes without a
 logged distance are converted with a typical loaded walking speed.
 """
 

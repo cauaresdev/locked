@@ -35,8 +35,9 @@ export function sleepHoursHealthKit(samples: { value: number; startDate: Date; e
   return round1(unionMs(asleep.map((s) => [+s.startDate, +s.endDate])) / HOUR);
 }
 
-// Health Connect SleepStageType: 1 AWAKE, 3 OUT_OF_BED; 2 SLEEPING, 4 LIGHT, 5 DEEP, 6 REM count as sleep.
-const HC_AWAKE = new Set([0, 1, 3]);
+// Health Connect SleepStageType: 0 UNKNOWN, 1 AWAKE, 3 OUT_OF_BED, 7 AWAKE_IN_BED;
+// 2 SLEEPING, 4 LIGHT, 5 DEEP, 6 REM count as sleep.
+const HC_AWAKE = new Set([0, 1, 3, 7]);
 
 export function sleepHoursHealthConnect(
   sessions: { startTime: string; endTime: string; stages?: { startTime: string; endTime: string; stage: number }[] }[],

@@ -1,11 +1,15 @@
 import { emitUnauthorized, getToken } from '../auth';
 import type {
   Athlete,
+  AthleteCreate,
   ArmorLoad,
   AuthResult,
   EarlyBird,
   FoodEntryInput,
+  Missed,
   NutritionDay,
+  Prescription,
+  Progress,
   ProfileInput,
   Product,
   ReadinessInput,
@@ -16,8 +20,9 @@ import type {
   StrengthEntry,
   Supplement,
   TelemetrySample,
-  Tier,
   TierInfo,
+  WeighInInput,
+  Weight,
 } from './types';
 
 const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
@@ -34,25 +39,44 @@ export class ApiError extends Error {
 
 type Sync = { accepted: number; duplicates: number };
 
-async function request<T>(path: string, init?: RequestInit & { auth?: boolean }): Promise<T> {
+/** Readable message from an error body: FastAPI's 422 detail is a list of {loc, msg}. */
+export function errorDetail(body: unknown, status: number): string {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail
+      .map((d: { loc?: unknown[]; msg?: unknown }) => {
+        const field = (d.loc ?? []).filter((p) => p !== 'body' && typeof p !== 'number').join('.');
+        const msg = typeof d.msg === 'string' ? d.msg : 'inválido';
+        return field ? `${field}: ${msg}` : msg;
+      })
+      .join('; ');
+  }
+  return `HTTP ${status}`;
+}
+
+type Init = RequestInit & { auth?: boolean; token?: string };
+
+async function request<T>(path: string, init?: Init): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  const token = init?.auth === false ? null : getToken();
+  const { auth, token: explicit, ...rest } = init ?? {};
+  const token = auth === false ? null : (explicit ?? getToken());
   try {
     const res = await fetch(`${BASE_URL}${path}`, {
-      ...init,
+      ...rest,
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...init?.headers,
+        ...rest.headers,
       },
     });
-    if (res.status === 401 && token) emitUnauthorized();
+    // Only the session still in use is over: a stale request must not sign out a newer login.
+    if (res.status === 401 && token && token === getToken()) emitUnauthorized();
     if (!res.ok) {
       const body = await res.json().catch(() => null);
-      const detail = typeof body?.detail === 'string' ? body.detail : `HTTP ${res.status}`;
-      throw new ApiError(res.status, detail);
+      throw new ApiError(res.status, errorDetail(body, res.status));
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
@@ -69,12 +93,11 @@ export const api = {
   login: (email: string, password: string) =>
     request<AuthResult>('/auth/login', { ...json('POST', { email, password }), auth: false }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
-  me: () => request<Athlete | null>('/auth/me'),
+  me: (token?: string) => request<Athlete | null>('/auth/me', { token }),
 
   tiers: () => request<TierInfo[]>('/tiers'),
-  createAthlete: (body: ProfileInput & { name: string; tier: Tier; bodyweight_kg: number }) =>
-    request<Athlete>('/athletes', json('POST', body)),
-  athlete: (id: string) => request<Athlete>(`/athletes/${id}`),
+  createAthlete: (body: AthleteCreate) => request<Athlete>('/athletes', json('POST', body)),
+  athlete: (id: string, token?: string) => request<Athlete>(`/athletes/${id}`, { token }),
   updateAthlete: (id: string, body: ProfileInput) => request<Athlete>(`/athletes/${id}`, json('PATCH', body)),
 
   session: (id: string, day: string) => request<Session>(`/athletes/${id}/sessions/${day}`),
@@ -83,6 +106,11 @@ export const api = {
   putReadiness: (id: string, body: ReadinessInput) =>
     request<ReadinessSummary>(`/athletes/${id}/readiness`, json('PUT', body)),
   postLogs: (id: string, logs: SetLog[]) => request<Sync>(`/athletes/${id}/logs`, json('POST', logs)),
+  deleteLog: (id: string, logId: string) => request<void>(`/athletes/${id}/logs/${logId}`, { method: 'DELETE' }),
+  alternatives: (id: string, day: string, block: number, index: number) =>
+    request<Prescription[]>(`/athletes/${id}/sessions/${day}/alternatives?block=${block}&index=${index}`),
+  missed: (id: string, day: string) => request<Missed>(`/athletes/${id}/cycle/missed?day=${day}`),
+  shiftCycle: (id: string, days: number) => request<Athlete>(`/athletes/${id}/cycle/shift`, json('POST', { days })),
   armorLoad: (id: string, on: string) => request<ArmorLoad>(`/athletes/${id}/armor-load?on=${on}`),
   strength: (id: string) => request<StrengthEntry[]>(`/athletes/${id}/strength`),
 
@@ -95,6 +123,13 @@ export const api = {
     request<Supplement[]>(`/athletes/${id}/supplements/${day}`, json('PUT', { item_id, taken })),
   staples: () => request<Staple[]>('/foods/staples'),
   product: (barcode: string) => request<Product>(`/foods/barcode/${barcode}`),
+
+  putWeight: (id: string, body: WeighInInput) => request<Weight>(`/athletes/${id}/weight`, json('PUT', body)),
+  weight: (id: string, days = 90) => request<Weight>(`/athletes/${id}/weight?days=${days}`),
+  progress: (id: string, days = 60) => request<Progress>(`/athletes/${id}/progress?days=${days}`),
+
+  exportData: () => request<Record<string, unknown>>('/auth/export'),
+  deleteAccount: (password: string) => request<void>('/auth/account', json('DELETE', { password })),
 
   postTelemetry: (id: string, samples: TelemetrySample[]) =>
     request<Sync>(`/athletes/${id}/telemetry`, json('POST', samples)),

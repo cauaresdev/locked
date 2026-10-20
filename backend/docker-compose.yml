@@ -17,6 +17,9 @@ services:
     environment:
       KNIGHTFALL_DATABASE_URL: postgresql+psycopg://knightfall:${POSTGRES_PASSWORD}@db:5432/knightfall
       KNIGHTFALL_CORS_ORIGINS: ${KNIGHTFALL_CORS_ORIGINS:-}
+      # Proxies whose X-Forwarded-For uvicorn trusts (the login throttle counts per client IP).
+      # Set it to the load balancer's address; "*" only when nothing else can reach the port.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
       - "8000:8000"
     depends_on:

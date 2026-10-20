@@ -3,7 +3,7 @@ import { Tabs } from 'expo-router/js-tabs';
 import { Text, type ColorValue } from 'react-native';
 
 import { getToken } from '../../auth';
-import { useDevices, fresh } from '../../ble/devices';
+import { useDeviceControls } from '../../ble/devices';
 import { colors, fonts } from '../../theme';
 
 // Monospace glyphs instead of an icon font: fits the industrial look and adds no dependency.
@@ -13,13 +13,15 @@ const glyph = (g: string) =>
   };
 
 export default function TabLayout() {
-  const { hr } = useDevices();
+  // Connection state only: a live BPM in the tab title re-rendered the whole navigator every second.
+  const strap = !!useDeviceControls().connected.hr;
   if (!getToken()) return <Redirect href="/login" />;
-  const bpm = fresh(hr);
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
+        // Hidden tabs stay mounted; frozen, they skip the renders that live BLE readings would cause.
+        freezeOnBlur: true,
         tabBarActiveTintColor: colors.bone,
         tabBarInactiveTintColor: colors.concrete,
         tabBarStyle: { backgroundColor: colors.void, borderTopColor: colors.seam },
@@ -27,10 +29,13 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen name="today" options={{ title: 'Hoje', tabBarIcon: glyph('▣') }} />
+      <Tabs.Screen name="progress" options={{ title: 'Progresso', tabBarIcon: glyph('▲') }} />
       <Tabs.Screen name="nutrition" options={{ title: 'Nutrição', tabBarIcon: glyph('◧') }} />
       <Tabs.Screen
         name="early-bird"
-        options={{ title: bpm ? `${bpm} bpm` : 'Early Bird', tabBarIcon: glyph(bpm ? '♥' : '◔') }}
+        // Not frozen: its zone voice cues are driven by live HR renders and must keep
+        // speaking during the 30-min window even when another tab is showing.
+        options={{ title: 'Early Bird', tabBarIcon: glyph(strap ? '♥' : '◔'), freezeOnBlur: false }}
       />
       <Tabs.Screen name="settings" options={{ title: 'Ajustes', tabBarIcon: glyph('≡') }} />
     </Tabs>

@@ -42,6 +42,15 @@ it('uses Health Connect stages when present, else the session', () => {
   expect(sleepHoursHealthConnect([])).toBeNull();
 });
 
+it('treats Health Connect AWAKE_IN_BED (7) as awake', () => {
+  const stages = [
+    { startTime: '2026-03-01T22:00:00Z', endTime: '2026-03-01T23:00:00Z', stage: 7 }, // in bed, awake
+    { startTime: '2026-03-01T23:00:00Z', endTime: '2026-03-02T05:00:00Z', stage: 5 },
+    { startTime: '2026-03-02T05:00:00Z', endTime: '2026-03-02T06:00:00Z', stage: 7 },
+  ];
+  expect(sleepHoursHealthConnect([{ startTime: stages[0].startTime, endTime: stages[2].endTime, stages }])).toBe(6);
+});
+
 it('averages', () => {
   expect(mean([40, 50, 61])).toBe(50.3);
   expect(mean([])).toBeNull();

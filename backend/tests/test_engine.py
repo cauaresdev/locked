@@ -6,8 +6,8 @@ import pytest
 
 from knightfall import chaos
 from knightfall.catalog import EXERCISES
-from knightfall.chaos import select_day
-from knightfall.domain import BlockKind, Mode, Tier
+from knightfall.chaos import candidates, select_day
+from knightfall.domain import BlockKind, Implement, Mode, Tier
 from knightfall.generator import CyclePosition, generate_session, locate
 from knightfall.templates import TEMPLATES
 from knightfall.tiers import TIERS
@@ -133,3 +133,122 @@ def test_off_day_is_active_recovery():
 def test_brawler_long_run_notice():
     s = generate_session(Tier.BRAWLER, CyclePosition(14, 1), SEED, weeks_in_tier=16)
     assert any("16 semanas" in n for n in s.notices)
+
+
+def _rotation_pairs(template_id, equipment=None, cycles=25):
+    """(slot, previous variant, current variant, exercise names the rest of today's session took)."""
+    t = TEMPLATES[template_id]
+    slots = t.strength + t.conditioning
+    for k in range(1, cycles):
+        prev, cur = select_day(SEED, template_id, k - 1, equipment), select_day(SEED, template_id, k, equipment)
+        today = cur.strength + cur.conditioning
+        for i, (slot, a, b) in enumerate(zip(slots, prev.strength + prev.conditioning, today)):
+            others = [cur.cardio, cur.roller, *cur.drills, *(v for j, v in enumerate(today) if j != i)]
+            taken = {EXERCISES[v[0]].name for v in others}
+            yield slot, a, b, taken
+
+
+@pytest.mark.parametrize("equipment", [None, frozenset({Implement.BODYWEIGHT}), frozenset({Implement.DUMBBELL})])
+@pytest.mark.parametrize("template_id", list(TEMPLATES))
+def test_chaos_never_repeats_a_slot_identically(template_id, equipment):
+    """Strength and conditioning: a slot with options left never keeps the same (exercise, modality), and in
+    a full gym a slot with several exercises always changes exercise (sprint has one: its modality alternates)."""
+    for slot, a, b, taken in _rotation_pairs(template_id, equipment):
+        free = [v for v in candidates(slot.pattern, slot.modalities, equipment) if EXERCISES[v[0]].name not in taken]
+        if len(free) > 1:
+            assert a != b, (template_id, slot.pattern)
+        if len({v[0] for v in free}) > 1 and equipment is None:
+            assert a[0] != b[0], (template_id, slot.pattern)
+
+
+# Bodyweight-only is left out: with one push-up variant D2 needs it in both blocks, and the engine
+# repeats rather than leave a hole.
+@pytest.mark.parametrize("equipment", [None, frozenset({Implement.DUMBBELL})])
+@pytest.mark.parametrize("template_id", list(TEMPLATES))
+def test_chaos_never_shows_a_movement_twice_in_a_day(template_id, equipment):
+    """Prep drill and core lift share "Plank with Arm Extension" under two ids: a day shows it once."""
+    for k in range(25):
+        sel = select_day(SEED, template_id, k, equipment)
+        names = [EXERCISES[v[0]].name for v in (sel.cardio, sel.roller, *sel.drills, *sel.strength, *sel.conditioning)]
+        assert len(names) == len(set(names)), (template_id, k, names)
+
+
+# Seed "golden". A change here reshuffles every athlete's program: update it only on purpose.
+GOLDEN = {
+    ("D2", 1): "sled_push:strength pallof_press:isometric half_kneeling_cable_press:strength "
+               "kb_bottoms_up_press:strength barbell_hip_thrust:strength airdyne_sprint:explosive "
+               "band_pull_apart:hypertrophy alt_db_open_curl_complex:hypertrophy db_bench_press:hypertrophy "
+               "db_shrug:hypertrophy",
+    ("D3", 4): "trap_bar_carry:strength landmine_rotation:strength barbell_hip_thrust:strength front_squat:tempo "
+               "lateral_squat:strength airdyne_sprint:conditioning kb_swing:hypertrophy "
+               "alt_hanging_knee_up:hypertrophy face_pull:hypertrophy db_reverse_lunge:hypertrophy",
+}
+GOLDEN_DIGEST = "298d6d2c70e15bd9d5c57187b20603a22e9a2c42aee9a3341f7af173377f236e"  # all templates, cycles 0-11
+
+
+def _golden_selection(tid, k):
+    sel = select_day("golden", tid, k)
+    return " ".join(f"{e}:{m.value}" for e, m in (*sel.strength, *sel.conditioning))
+
+
+def test_chaos_golden_schedule():
+    import hashlib
+
+    for (tid, k), expected in GOLDEN.items():
+        assert _golden_selection(tid, k) == expected
+    h = hashlib.sha256()
+    for tid in TEMPLATES:
+        for k in range(12):
+            sel = select_day("golden", tid, k)
+            h.update(repr((sel.cardio, sel.roller, sel.drills, sel.strength, sel.conditioning)).encode())
+    assert h.hexdigest() == GOLDEN_DIGEST
+
+
+def test_chaos_does_not_depend_on_catalog_order(monkeypatch):
+    from knightfall import catalog
+
+    expected = [select_day("order", tid, k) for tid in TEMPLATES for k in range(8)]
+    monkeypatch.setattr(catalog, "_EXERCISES", list(reversed(catalog._EXERCISES)))
+    chaos._chain.cache_clear()
+    chaos._candidates.cache_clear()
+    try:
+        assert [select_day("order", tid, k) for tid in TEMPLATES for k in range(8)] == expected
+    finally:
+        chaos._chain.cache_clear()
+        chaos._candidates.cache_clear()
+
+
+@pytest.mark.parametrize("tier", list(Tier))
+def test_bodyweight_profile_uses_stand_ins_and_flags_the_rest(tier):
+    bw = frozenset({Implement.BODYWEIGHT})
+    cfg = TIERS[tier]
+    for k in range(6):
+        for d in range(1, cfg.cycle_length + 1):
+            s = generate_session(tier, CyclePosition(k, d), SEED, equipment=bw)
+            off = {rx.implement for b in s.blocks for rx in b.exercises if rx.implement != Implement.BODYWEIGHT}
+            assert off <= {Implement.ROLLER}, (k, d, off)  # Block 1 included: no bike, KB, dumbbells...
+            flagged = [n for n in s.notices if "perfil de equipamentos" in n]
+            assert bool(flagged) == bool(off)
+            assert all("rolo de liberação" in n for n in flagged)
+    full = generate_session(tier, CyclePosition(1, 1), SEED)
+    assert not any("perfil de equipamentos" in n for n in full.notices)
+
+
+def test_full_gym_keeps_regular_exercises_but_swaps_offer_stand_ins():
+    from knightfall.generator import alternatives
+
+    for tid in TEMPLATES:
+        for k in range(12):
+            sel = select_day(SEED, tid, k)
+            ids = [sel.cardio[0], sel.roller[0], *(v[0] for v in (*sel.drills, *sel.strength, *sel.conditioning))]
+            assert not any(EXERCISES[i].stand_in for i in ids), (tid, k)
+    sprint_alts = alternatives(Tier.BRAWLER, CyclePosition(1, 1), SEED, 3, 0)
+    assert any(EXERCISES[rx.exercise_id].stand_in for rx in sprint_alts)
+
+
+def test_alternatives_validate_the_cycle_day():
+    from knightfall.generator import alternatives
+
+    for day in (0, 9, -1):
+        with pytest.raises(ValueError, match="cycle_day"):
+            alternatives(Tier.BRAWLER, CyclePosition(0, day), SEED, 2, 0)

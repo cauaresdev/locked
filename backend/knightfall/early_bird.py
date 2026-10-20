@@ -56,9 +56,17 @@ def evaluate(woke_at: datetime | None, samples: Sequence[Sample], hrmax: int | N
     return EarlyBirdResult(status, woke_at, end, round(in_zone, 1), REQUIRED_MIN, zone, avg)
 
 
-def streak(completed_days: set[date], today: date) -> int:
-    """Consecutive completed days ending today (or yesterday, if today is still open)."""
-    day = today if today in completed_days else today - timedelta(days=1)
+def streak(completed_days: set[date], today: date, today_open: bool = True) -> int:
+    """Consecutive completed days ending today, or yesterday while today can still be completed.
+
+    A window that closed today without 20 min in zone breaks the streak at once.
+    """
+    if today in completed_days:
+        day = today
+    elif today_open:
+        day = today - timedelta(days=1)
+    else:
+        return 0
     n = 0
     while day in completed_days:
         n += 1

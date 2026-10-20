@@ -19,13 +19,16 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     create_engine,
     select,
 )
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
+from .domain import Modality
 from .records import SetRecord
 
 DEFAULT_URL = "sqlite:///./knightfall.db"
@@ -77,15 +80,19 @@ class Athlete(Base):
     early_bird_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     wake_time: Mapped[str] = mapped_column(String(5), default="04:00")  # HH:MM local
     waiver_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Comma-separated domain.Implement values the athlete has access to; NULL = a full gym.
+    equipment: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    health_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class SetLog(Base):
     __tablename__ = "set_logs"
+    __table_args__ = (Index("ix_set_logs_athlete_day", "athlete_id", "performed_on"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # client-generated UUID
-    athlete_id: Mapped[str] = mapped_column(ForeignKey("athletes.id", ondelete="CASCADE"), index=True)
-    performed_on: Mapped[date] = mapped_column(Date, index=True)
+    athlete_id: Mapped[str] = mapped_column(ForeignKey("athletes.id", ondelete="CASCADE"))
+    performed_on: Mapped[date] = mapped_column(Date)
     exercise_id: Mapped[str] = mapped_column(String(64))
     set_index: Mapped[int] = mapped_column(Integer)
     reps: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -93,6 +100,8 @@ class SetLog(Base):
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     rpe: Mapped[float | None] = mapped_column(Float, nullable=True)
+    modality: Mapped[str | None] = mapped_column(String(16), nullable=True)  # as prescribed (e1RM uses straight sets)
+    performed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # device clock
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     def to_record(self) -> SetRecord:
@@ -104,6 +113,7 @@ class SetLog(Base):
             duration_seconds=self.duration_seconds,
             distance_m=self.distance_m,
             rpe=self.rpe,
+            modality=Modality(self.modality) if self.modality else None,
         )
 
 
@@ -154,10 +164,11 @@ class FoodProduct(Base):
 
 class FoodEntry(Base):
     __tablename__ = "food_entries"
+    __table_args__ = (Index("ix_food_entries_athlete_day", "athlete_id", "day"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # client-generated UUID
-    athlete_id: Mapped[str] = mapped_column(ForeignKey("athletes.id", ondelete="CASCADE"), index=True)
-    day: Mapped[date] = mapped_column(Date, index=True)
+    athlete_id: Mapped[str] = mapped_column(ForeignKey("athletes.id", ondelete="CASCADE"))
+    day: Mapped[date] = mapped_column(Date)
     meal: Mapped[str] = mapped_column(String(16))
     name: Mapped[str] = mapped_column(String(255))
     barcode: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -188,11 +199,22 @@ class EarlyBirdRun(Base):
     woke_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class WeighIn(Base):
+    __tablename__ = "weigh_ins"
+
+    athlete_id: Mapped[str] = mapped_column(ForeignKey("athletes.id", ondelete="CASCADE"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    weight_kg: Mapped[float] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(16), default="manual")
+
+
 class Database:
     def __init__(self, url: str | None = None) -> None:
         self.url = url or os.environ.get("KNIGHTFALL_DATABASE_URL", DEFAULT_URL)
         kwargs = {"connect_args": {"check_same_thread": False}} if self.url.startswith("sqlite") else {}
-        self.engine = create_engine(self.url, **kwargs)
+        # hide_parameters: a failed statement's bound values (weights, HRV, e-mails) stay out of
+        # exception messages, so out of logs and Sentry. pre_ping drops connections a proxy closed.
+        self.engine = create_engine(self.url, hide_parameters=True, pool_pre_ping=True, **kwargs)
         self._sessions = sessionmaker(self.engine, expire_on_commit=False)
 
     def migrate(self) -> None:
@@ -209,6 +231,26 @@ class Database:
     def session(self) -> Iterator[Session]:
         with self._sessions() as s:
             yield s
+
+    def new_session(self) -> Session:
+        """A session the caller closes (e.g. one that outlives the request, for a streamed body)."""
+        return self._sessions()
+
+
+def insert_new(s: Session, model: type[Base], rows: list[dict]) -> int:
+    """INSERT ... ON CONFLICT DO NOTHING on the primary key; returns how many rows were new.
+
+    Atomic in the database, so concurrent retries of the same offline batch cannot race
+    a read-then-insert into an IntegrityError.
+    """
+    if not rows:
+        return 0
+    dialect = s.get_bind().dialect.name
+    insert = {"postgresql": postgresql.insert, "sqlite": sqlite.insert}.get(dialect)
+    if insert is None:
+        raise NotImplementedError(f"insert_new does not support {dialect}")
+    pk = model.__table__.primary_key.columns.values()[-1]
+    return len(s.execute(insert(model).on_conflict_do_nothing().returning(pk), rows).all())
 
 
 def athlete_records(s: Session, athlete_id: str, since: date | None = None) -> list[SetRecord]:

@@ -11,7 +11,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Tier(StrEnum):
@@ -90,7 +90,13 @@ class ExecutionStyle(StrEnum):
     CHECKLIST = "checklist"
 
 
-class Tempo(BaseModel):
+class OutModel(BaseModel):
+    """Response model: fields with defaults are always sent, so the schema marks them required."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+
+class Tempo(OutModel):
     """Cadence in seconds per phase, e.g. 4-0-4-1 for the strict pull-up."""
 
     eccentric: int = Field(ge=0, le=10)
@@ -106,7 +112,7 @@ class Tempo(BaseModel):
         return f"{self.eccentric}-{self.bottom_pause}-{self.concentric}-{self.top_pause}"
 
 
-class Prescription(BaseModel):
+class Prescription(OutModel):
     exercise_id: str
     name: str
     pattern: Pattern
@@ -142,7 +148,7 @@ class Prescription(BaseModel):
         return self
 
 
-class Block(BaseModel):
+class Block(OutModel):
     order: int
     kind: BlockKind
     name: str
@@ -153,14 +159,14 @@ class Block(BaseModel):
     exercises: list[Prescription]
 
 
-class ReadinessSummary(BaseModel):
+class ReadinessSummary(OutModel):
     score: int = Field(ge=0, le=100)
     level: Literal["green", "amber", "red"]
     mobility_expanded: bool
     reasons: list[str] = Field(default_factory=list)
 
 
-class Session(BaseModel):
+class Session(OutModel):
     protocol_id: str
     tier: Tier
     cycle_index: int
@@ -172,5 +178,6 @@ class Session(BaseModel):
     target_duration_minutes: int
     rest_cap_seconds: int
     readiness: ReadinessSummary | None = None
+    deload: bool = False
     notices: list[str] = Field(default_factory=list)
     blocks: list[Block]

@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from .. import nutrition as nu
-from ..db import FoodEntry, FoodProduct, SupplementIntake
+from ..db import FoodEntry, FoodProduct, SupplementIntake, insert_new
 from ..foods import Product, fetch_product
 from .deps import AthleteDep, CurrentUser, Db, Http
 from .schemas import (
+    MAX_LOG_BATCH,
     AlertOut,
+    Day,
     FoodEntryIn,
     FoodEntryOut,
     MacrosOut,
@@ -25,7 +29,7 @@ from .schemas import (
     SyncResult,
     TotalsOut,
 )
-from .services import session_energy
+from .services import reject_foreign_ids, session_energy
 
 router = APIRouter(tags=["nutrition"])
 
@@ -65,7 +69,7 @@ def _entry_out(row: FoodEntry) -> FoodEntryOut:
 
 
 @router.get("/athletes/{athlete_id}/nutrition/{day}", response_model=NutritionDayOut)
-def nutrition_day(day: date, a: AthleteDep, s: Db) -> NutritionDayOut:
+def nutrition_day(day: Day, a: AthleteDep, s: Db) -> NutritionDayOut:
     session_kcal, source, training = session_energy(s, a, day)
     lbm = nu.lean_mass(a.bodyweight_kg, a.body_fat_pct, a.height_cm, a.sex)
     t = nu.targets(lbm, session_kcal)
@@ -124,21 +128,24 @@ def _resolve(s: Db, item: FoodEntryIn) -> nu.Entry:
 
 
 @router.post("/athletes/{athlete_id}/food-entries", response_model=SyncResult)
-def post_food_entries(body: list[FoodEntryIn], a: AthleteDep, s: Db) -> SyncResult:
+def post_food_entries(
+    body: Annotated[list[FoodEntryIn], Body(max_length=MAX_LOG_BATCH)], a: AthleteDep, s: Db
+) -> SyncResult:
     ids = [str(i.id) for i in body]
-    existing = set(s.scalars(select(FoodEntry.id).where(FoodEntry.id.in_(ids)))) if ids else set()
-    accepted = 0
+    reject_foreign_ids(s, FoodEntry, ids, a)
+    # Already-stored retries skip nutrient resolution; the insert itself is ON CONFLICT DO NOTHING.
+    stored = set(s.scalars(select(FoodEntry.id).where(FoodEntry.id.in_(ids)))) if ids else set()
+    rows = []
     for item in body:
-        if str(item.id) in existing:
+        if str(item.id) in stored:
             continue
         e = _resolve(s, item)
-        existing.add(e.id)
-        s.add(FoodEntry(
+        rows.append(dict(
             id=e.id, athlete_id=a.id, day=item.day, meal=e.meal.value, name=e.name, barcode=item.barcode,
             grams=item.grams, kcal=e.kcal, protein_g=e.protein_g, carbs_g=e.carbs_g, fat_g=e.fat_g,
             sodium_mg=e.sodium_mg, dairy=e.dairy.value, category=e.category.value if e.category else None,
         ))
-        accepted += 1
+    accepted = insert_new(s, FoodEntry, rows)
     s.commit()
     return SyncResult(accepted=accepted, duplicates=len(body) - accepted)
 
@@ -150,7 +157,7 @@ def delete_food_entry(entry_id: str, a: AthleteDep, s: Db) -> None:
 
 
 @router.put("/athletes/{athlete_id}/supplements/{day}", response_model=list[SupplementOut])
-def put_supplement(day: date, body: SupplementIn, a: AthleteDep, s: Db) -> list[SupplementOut]:
+def put_supplement(day: Day, body: SupplementIn, a: AthleteDep, s: Db) -> list[SupplementOut]:
     if body.item_id not in SUPPLEMENT_IDS:
         raise HTTPException(422, f"unknown supplement {body.item_id!r}")
     row = s.get(SupplementIntake, (a.id, day, body.item_id))
@@ -224,5 +231,9 @@ def barcode(code: str, _: CurrentUser, s: Db, http: Http) -> ProductOut:
     row.dairy = p.dairy.value
     row.fetched_at = now
     s.add(row)
-    s.commit()
+    try:
+        s.commit()
+    except IntegrityError:  # a concurrent first lookup of the same code cached it first
+        s.rollback()
+        row = s.get(FoodProduct, code) or row
     return _product_out(row)

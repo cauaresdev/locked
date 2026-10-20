@@ -1,8 +1,9 @@
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from conftest import register
+from sqlalchemy import create_engine
 
 START = date(2026, 1, 5)
 
@@ -66,7 +67,11 @@ def test_session_and_schedule(client, auth):
     assert client.get(f"/athletes/{a['id']}/sessions/{before}", headers=auth).status_code == 422
 
 
-def test_logs_idempotent_feed_progression_armor_and_strength(client, auth):
+def test_logs_idempotent_feed_progression_armor_and_strength(client, auth, monkeypatch):
+    # A fixed Chaos Engine seed: the progression checks below need both lifts to come back within 60 days.
+    from knightfall.api import routes_training
+
+    monkeypatch.setattr(routes_training.secrets, "token_hex", lambda n: "fixed-progression-seed")
     a = make_athlete(client, auth).json()
     day = START
     s = client.get(f"/athletes/{a['id']}/sessions/{day.isoformat()}", headers=auth).json()
@@ -117,7 +122,8 @@ def test_tier_change_restarts_cycle(client, auth):
     url = f"/athletes/{a['id']}"
     assert client.patch(url, json={"tier": "brawler"}, headers=auth).status_code == 422
     r = client.patch(url, json={"tier": "brawler", "accept_brawler_waiver": True}, headers=auth).json()
-    assert r["tier"] == "brawler" and r["cycle_start"] == date.today().isoformat() and r["cycle_length"] == 8
+    today_utc = datetime.now(timezone.utc).date().isoformat()  # the athlete's timezone is UTC
+    assert r["tier"] == "brawler" and r["cycle_start"] == today_utc and r["cycle_length"] == 8
 
 
 def test_today_is_the_athletes_local_day(client, auth):
@@ -175,3 +181,14 @@ def test_throttle_window_slides():
     t.fail("k")
     t.reset("k")
     assert t.retry_after("k") is None
+
+
+def test_health_checks_database(client):
+    assert client.get("/health").json() == {"status": "ok", "database": "up"}
+    db = client.app.state.db
+    real, db.engine = db.engine, create_engine("sqlite:////nonexistent/dir/x.db")
+    try:
+        r = client.get("/health")
+    finally:
+        db.engine = real
+    assert r.status_code == 503 and r.json()["database"] == "down"

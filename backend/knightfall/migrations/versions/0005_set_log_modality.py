@@ -1,0 +1,26 @@
+"""Modality of each logged set, so only straight sets estimate the 1RM.
+
+Revision ID: 0005
+Revises: 0004
+Create Date: 2026-10-16
+"""
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+from alembic import op
+
+revision: str = "0005"
+down_revision: str | Sequence[str] | None = "0004"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    with op.batch_alter_table("set_logs") as batch_op:
+        batch_op.add_column(sa.Column("modality", sa.String(length=16), nullable=True))
+
+
+def downgrade() -> None:
+    with op.batch_alter_table("set_logs") as batch_op:
+        batch_op.drop_column("modality")

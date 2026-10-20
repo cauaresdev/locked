@@ -49,31 +49,52 @@ class Throttle:
 
     Behind several API workers each one counts separately, so the effective
     limit is `limit x workers`; a shared store (Redis) would make it exact.
+
+    Only keys with hits inside the window are kept: lookups never create entries,
+    and a sweep every SWEEP_EVERY failures drops the expired ones, so cycling
+    random e-mails cannot grow memory without bound.
     """
+
+    SWEEP_EVERY = 1024
 
     def __init__(self, limit: int, window_s: float, clock=time.monotonic) -> None:
         self.limit, self.window_s, self._clock = limit, window_s, clock
         self._hits: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
+        self._since_sweep = 0
 
-    def _live(self, key: str, now: float) -> deque[float]:
-        q = self._hits.setdefault(key, deque())
+    def _prune(self, q: deque[float], now: float) -> None:
         while q and now - q[0] >= self.window_s:
             q.popleft()
-        return q
+
+    def __len__(self) -> int:
+        return len(self._hits)
 
     def retry_after(self, key: str) -> int | None:
         """Seconds until `key` may try again, or None when it is not blocked."""
         with self._lock:
+            q = self._hits.get(key)
+            if q is None:
+                return None
             now = self._clock()
-            q = self._live(key, now)
+            self._prune(q, now)
+            if not q:
+                del self._hits[key]
             if len(q) < self.limit:
                 return None
             return max(1, int(self.window_s - (now - q[0])) + 1)
 
     def fail(self, key: str) -> None:
         with self._lock:
-            self._live(key, self._clock()).append(self._clock())
+            now = self._clock()
+            q = self._hits.setdefault(key, deque())
+            self._prune(q, now)
+            q.append(now)
+            self._since_sweep += 1
+            if self._since_sweep >= self.SWEEP_EVERY:
+                self._since_sweep = 0
+                for k in [k for k, v in self._hits.items() if now - v[-1] >= self.window_s]:
+                    del self._hits[k]
 
     def reset(self, key: str) -> None:
         with self._lock:

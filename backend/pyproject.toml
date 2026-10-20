@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx2", "ruff>=0.15"]
 postgres = ["psycopg[binary]>=3.2"]
+observability = ["sentry-sdk>=2"]
 
 [build-system]
 requires = ["setuptools>=70"]
@@ -40,4 +41,4 @@ ignore = ["B905"]  # zip() here always pairs equal-length sequences built togeth
 
 [tool.ruff.lint.per-file-ignores]
 # S/T/I/E/H/C are the modality shorthands of the catalog tables.
-"knightfall/{catalog,templates}.py" = ["E741"]
+"knightfall/{catalog,templates}.py" = ["E741", "E501"]  # data tables: one exercise per line

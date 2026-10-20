@@ -28,6 +28,7 @@ class TierConfig:
     rest_seconds: int
     requires_waiver: bool = False
     max_recommended_weeks: int | None = None
+    deload_every_cycles: int = 6  # every Nth cycle is a deload (~6 weeks)
 
     @property
     def cycle_length(self) -> int:
@@ -79,8 +80,11 @@ TIERS: dict[Tier, TierConfig] = {
         rest_seconds=60,
         requires_waiver=True,
         max_recommended_weeks=16,
+        deload_every_cycles=5,  # 8-day cycles: every 40 days
     ),
 }
 
 REST_CAP_SECONDS = 60
+DELOAD_SET_MULTIPLIER = 0.6
+DELOAD_RPE_DELTA = -2
 AMRAP_ROUND_REST_SECONDS = 30

@@ -3,7 +3,10 @@
 - Calories: 12-14 kcal per lb of lean body mass. The floor (12) is raised by
   the day's measured/estimated session expenditure and capped at 14.
 - Carb curfew: complex carbs only at breakfast and post-workout/lunch;
-  dinner is lean protein + fibrous cruciferous vegetables.
+  dinner is lean protein + fibrous cruciferous vegetables. The curfew alert
+  ignores the whole VEG category (fibrous, non-starchy vegetables: crucifers
+  and leafy greens), because foods scanned or typed in carry only a category,
+  not a botanical family.
 - No dairy (hydrolysed whey isolate in water is the protocol's one exception).
 - Sodium: 1,500-2,000 mg/day, alert on any single meal above 500 mg.
 - Flaxseed oil 1 tbsp twice a day, CLA with meals.
@@ -29,6 +32,7 @@ SODIUM_MIN_MG = 1500
 SODIUM_MAX_MG = 2000
 SODIUM_MEAL_MAX_MG = 500
 CURFEW_CARB_ALLOWANCE_G = 10  # non-vegetable carbs tolerated at dinner
+BOER_MIN_FRACTION, BOER_MAX_FRACTION = 0.5, 0.95  # plausible lean share of body weight
 
 
 class Dairy(StrEnum):
@@ -48,7 +52,7 @@ class Meal(StrEnum):
 class Category(StrEnum):
     CARB = "carb"
     PROTEIN = "protein"
-    VEG = "veg"
+    VEG = "veg"  # fibrous, non-starchy vegetables (exempt from the carb curfew)
     FAT = "fat"
     SUPPLEMENT = "supplement"
 
@@ -89,11 +93,11 @@ STAPLES: dict[str, Staple] = {
 
 SUPPLEMENTS: list[tuple[str, str, Meal]] = [
     ("flaxseed_oil:breakfast", "Óleo de linhaça · 1 colher de sopa", Meal.BREAKFAST),
-    ("cla:breakfast", "CLA · 1 cápsula", Meal.BREAKFAST),
+    ("cla:breakfast", "CLA (ácido linoleico conjugado) · 1 cápsula", Meal.BREAKFAST),
     ("whey_isolate:post_workout", "Whey isolado hidrolisado · com água", Meal.POST_WORKOUT),
-    ("cla:post_workout", "CLA · 1 cápsula", Meal.POST_WORKOUT),
+    ("cla:post_workout", "CLA (ácido linoleico conjugado) · 1 cápsula", Meal.POST_WORKOUT),
     ("flaxseed_oil:dinner", "Óleo de linhaça · 1 colher de sopa", Meal.DINNER),
-    ("cla:dinner", "CLA · 1 cápsula", Meal.DINNER),
+    ("cla:dinner", "CLA (ácido linoleico conjugado) · 1 cápsula", Meal.DINNER),
 ]
 
 # Fraction of each macro per meal. Carbs only before the curfew.
@@ -126,6 +130,8 @@ def lean_mass(weight_kg: float, body_fat_pct: float | None, height_cm: float | N
             kg = 0.407 * weight_kg + 0.267 * height_cm - 19.2
         else:
             kg = 0.252 * weight_kg + 0.473 * height_cm - 48.3
+        # Boer is a regression: at extreme height/weight it can exceed body weight (or collapse).
+        kg = min(max(kg, BOER_MIN_FRACTION * weight_kg), BOER_MAX_FRACTION * weight_kg)
         return LeanMass(round(kg, 1), "boer")
     assumed_bf = {"male": 15, "female": 25}.get(sex or "", 20)
     return LeanMass(round(weight_kg * (1 - assumed_bf / 100), 1), "assumed")
@@ -249,7 +255,7 @@ def audit(entries: Iterable[Entry], t: Targets) -> DayAudit:
                                 f"Sódio no {MEAL_LABEL[meal]}: {round(mt.sodium_mg)} mg (máx. {SODIUM_MEAL_MAX_MG})",
                                 meal))
     curfew_carbs = sum(e.carbs_g for e in entries
-                       if e.meal in (Meal.SNACK, Meal.DINNER) and e.category not in (Category.VEG,))
+                       if e.meal in (Meal.SNACK, Meal.DINNER) and e.category != Category.VEG)
     if curfew_carbs > CURFEW_CARB_ALLOWANCE_G:
         alerts.append(Alert("amber", "carb_curfew",
                             f"Toque de recolher: {round(curfew_carbs)} g de carboidrato após o pós-treino",
@@ -258,7 +264,7 @@ def audit(entries: Iterable[Entry], t: Targets) -> DayAudit:
         alerts.append(Alert("red", "sodium_day", f"Teto diário de sódio estourado: {round(total.sodium_mg)} mg"))
     elif total.sodium_mg > 0.9 * SODIUM_MAX_MG:
         alerts.append(Alert("amber", "sodium_day_near", f"Sódio do dia em {round(total.sodium_mg)} mg"))
-    if total.kcal > 1.1 * t.total.kcal:
+    if t.total.kcal > 0 and total.kcal > 1.1 * t.total.kcal:
         alerts.append(Alert("amber", "kcal_over", f"Calorias {round(total.kcal)} acima da meta {round(t.total.kcal)}"))
 
     return DayAudit(total.rounded(), {m: v.rounded() for m, v in by_meal.items()}, alerts)

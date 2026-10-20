@@ -1,4 +1,4 @@
-import { parseCyclingPower, parseHeartRate, parseIndoorBikeData, shortUuid } from '../parsers';
+import { mergeAdvert, parseCyclingPower, parseHeartRate, parseIndoorBikeData, shortUuid } from '../parsers';
 
 describe('heart rate measurement', () => {
   it('parses uint8 bpm without contact support', () => {
@@ -53,4 +53,21 @@ describe('cycling power', () => {
 it('normalises SIG UUIDs', () => {
   expect(shortUuid('0000180D-0000-1000-8000-00805F9B34FB')).toBe('180d');
   expect(shortUuid('180D')).toBe('180d');
+});
+
+describe('scan list', () => {
+  const strap = { id: 'a', rssi: -60 };
+  const bike = { id: 'b', rssi: -70 };
+
+  it('adds new devices strongest first', () => {
+    expect(mergeAdvert([bike], strap)).toEqual([strap, bike]);
+  });
+
+  it('ignores RSSI jitter on a listed device', () => {
+    expect(mergeAdvert([strap, bike], { id: 'a', rssi: -63 })).toBeNull();
+  });
+
+  it('re-sorts when the signal moves enough', () => {
+    expect(mergeAdvert([strap, bike], { id: 'a', rssi: -80 })).toEqual([bike, { id: 'a', rssi: -80 }]);
+  });
 });

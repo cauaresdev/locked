@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+from .domain import Modality
+
 
 @dataclass(frozen=True)
 class SetRecord:
@@ -15,3 +17,4 @@ class SetRecord:
     duration_seconds: int | None = None
     distance_m: float | None = None
     rpe: float | None = None
+    modality: Modality | None = None  # as prescribed; None when the client did not send it

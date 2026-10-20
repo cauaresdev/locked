@@ -1,68 +1,131 @@
-import { Redirect, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Redirect, useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { AccessibilityInfo, Alert, AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../api/client';
-import type { Athlete, Sex, Tier } from '../../api/types';
+import type { Athlete, Implement, Sex, Tier } from '../../api/types';
 import { clearToken } from '../../auth';
-import { useDevices, type FoundDevice } from '../../ble/devices';
-import { Badge, Button, Divider, Field, Panel, Row, T } from '../../components/ui';
+import { useDeviceControls, useDeviceScan, type FoundDevice } from '../../ble/devices';
+import { Badge, Button, Chip, Divider, Field, Panel, Row, T, TextLink } from '../../components/ui';
 import { isoDay } from '../../engine/format';
+import { GLOSSARY, signalLabel } from '../../engine/glossary';
 import { healthProvider, syncNight } from '../../health';
-import { cancelEarlyBird } from '../../notifications';
+import { cancelEarlyBird, exactAlarmsAllowed, openExactAlarmSettings } from '../../notifications';
 import {
   clearLocalData,
   healthSyncEnabled,
   pendingTotal,
+  rejectedCount,
   setHealthSyncEnabled,
   storeAthlete,
   storedAthlete,
 } from '../../storage/db';
 import type { DeviceRole } from '../../storage/db';
 import { flushAll } from '../../sync';
-import { colors, space } from '../../theme';
+import { colors, fonts, space } from '../../theme';
 
 const TIER_LABEL: Record<Tier, string> = { vigilante: 'Vigilante', dark_knight: 'Dark Knight', brawler: 'Brawler' };
-const ROLE_LABEL: Record<DeviceRole, string> = { hr: 'Cinta cardíaca', bike: 'AirBike / bike (FTMS)' };
+const ROLE_LABEL: Record<DeviceRole, string> = {
+  hr: 'Cinta cardíaca',
+  bike: 'AirBike / bike (padrão FTMS: Bluetooth de aparelhos de academia)',
+};
+
+// Bodyweight is always available, so it is not a toggle.
+const EQUIPMENT: { id: Implement; label: string }[] = [
+  { id: 'barbell', label: 'Barra olímpica' },
+  { id: 'trap_bar', label: 'Barra hexagonal (trap bar)' },
+  { id: 'dumbbell', label: 'Halteres' },
+  { id: 'kettlebell', label: 'Kettlebell' },
+  { id: 'cable', label: 'Polia / cabo' },
+  { id: 'machine', label: 'Máquinas' },
+  { id: 'sled', label: 'Trenó' },
+  { id: 'band', label: 'Elástico' },
+  { id: 'roller', label: 'Rolo de liberação' },
+  { id: 'ergometer', label: 'Bike / remo / elíptico' },
+];
 
 const str = (v: number | null | undefined) => (v == null ? '' : String(v));
 const num = (v: string) => (v.trim() ? Number(v.replace(',', '.')) : null);
+const formOf = (a: Athlete | null) => ({
+  name: a?.name ?? '',
+  weight: str(a?.bodyweight_kg),
+  bf: str(a?.body_fat_pct),
+  height: str(a?.height_cm),
+  birth: str(a?.birth_year),
+  hrmax: str(a?.hr_max_override),
+  sex: a?.sex ?? null,
+});
+
+type Form = ReturnType<typeof formOf>;
+// Feedback shows next to the panel that caused it, not at the top of a long screen.
+type Where = 'profile' | 'tier' | 'health' | 'equipment' | 'account';
+type Msg = { text: string; tone: 'ok' | 'err'; at: Where };
+const MSG_MS = { ok: 4000, err: 8000 } as const; // errors stay a little longer to be read
+
+function Feedback({ msg, at }: { msg: Msg | null; at: Where }) {
+  if (!msg || msg.at !== at) return null;
+  return <T color={msg.tone === 'ok' ? colors.kryptonite : colors.amber}>{msg.text}</T>;
+}
 
 export default function Settings() {
   const router = useRouter();
-  const devices = useDevices();
+  const devices = useDeviceControls();
+  const scan = useDeviceScan();
   const [athlete, setAthlete] = useState<Athlete | null>(storedAthlete());
-  const [form, setForm] = useState(() => ({
-    name: athlete?.name ?? '',
-    weight: str(athlete?.bodyweight_kg),
-    bf: str(athlete?.body_fat_pct),
-    height: str(athlete?.height_cm),
-    birth: str(athlete?.birth_year),
-    hrmax: str(athlete?.hr_max_override),
-    sex: athlete?.sex ?? null,
-  }));
-  const [msg, setMsg] = useState<{ text: string; tone: 'ok' | 'err' } | null>(null);
+  const [form, setForm] = useState(() => formOf(athlete));
+  const edited = useRef(false); // unsaved typing in the profile form
+  const [msg, setMsgState] = useState<Msg | null>(null);
   const [health, setHealth] = useState(healthSyncEnabled());
+
+  const setMsg = useCallback((m: Msg) => {
+    setMsgState(m);
+    AccessibilityInfo.announceForAccessibility(m.text);
+  }, []);
+
+  useEffect(() => {
+    if (!msg) return;
+    const id = setTimeout(() => setMsgState(null), MSG_MS[msg.tone]);
+    return () => clearTimeout(id);
+  }, [msg]);
+
+  // Other screens refresh the stored profile (e.g. the 7-day weight trend): show the current one,
+  // unless the athlete has unsaved edits in the form.
+  useFocusEffect(
+    useCallback(() => {
+      const a = storedAthlete();
+      setAthlete(a);
+      if (!edited.current) setForm(formOf(a));
+    }, []),
+  );
 
   if (!athlete) return <Redirect href="/onboarding" />;
 
-  async function save(body: Parameters<typeof api.updateAthlete>[1], okText: string) {
+  const edit = (patch: Partial<Form>) => {
+    edited.current = true;
+    setForm((f) => ({ ...f, ...patch }));
+  };
+
+  async function save(body: Parameters<typeof api.updateAthlete>[1], okText: string, at: Where) {
     if (!athlete) return;
     try {
       const a = await api.updateAthlete(athlete.id, body);
       storeAthlete(a);
       setAthlete(a);
-      setMsg({ text: okText, tone: 'ok' });
+      if (at === 'profile') edited.current = false;
+      if (at === 'profile' || !edited.current) setForm(formOf(a));
+      setMsg({ text: okText, tone: 'ok', at });
     } catch (e) {
-      setMsg({ text: e instanceof Error ? e.message : 'Falha ao salvar', tone: 'err' });
+      setMsg({ text: e instanceof Error ? e.message : 'Falha ao salvar', tone: 'err', at });
     }
   }
 
   function changeTier(tier: Tier) {
     if (!athlete || tier === athlete.tier) return;
     const go = (waiver: boolean) =>
-      save({ tier, accept_brawler_waiver: waiver }, `Tier ${TIER_LABEL[tier]}: novo ciclo começa hoje.`);
+      save({ tier, accept_brawler_waiver: waiver }, `Tier ${TIER_LABEL[tier]}: novo ciclo começa hoje.`, 'tier');
     if (tier === 'brawler' && !athlete.waiver_accepted_at) {
       Alert.alert(
         'Termo de responsabilidade',
@@ -93,7 +156,7 @@ export default function Settings() {
       setHealth(true);
       await syncNow();
     } catch (e) {
-      setMsg({ text: e instanceof Error ? e.message : String(e), tone: 'err' });
+      setMsg({ text: e instanceof Error ? e.message : String(e), tone: 'err', at: 'health' });
     }
   }
 
@@ -101,15 +164,18 @@ export default function Settings() {
     if (!athlete) return;
     try {
       const r = await syncNight(athlete.id, isoDay());
-      setMsg(r ? { text: `Prontidão atualizada: ${r.score}`, tone: 'ok' } : { text: 'Nenhum dado da última noite', tone: 'err' });
+      setMsg(r
+        ? { text: `Prontidão atualizada: ${r.score}`, tone: 'ok', at: 'health' }
+        : { text: 'Nenhum dado de VFC ou sono da última noite', tone: 'err', at: 'health' });
     } catch (e) {
-      setMsg({ text: e instanceof Error ? e.message : String(e), tone: 'err' });
+      setMsg({ text: e instanceof Error ? e.message : String(e), tone: 'err', at: 'health' });
     }
   }
 
   async function signOut() {
     await api.logout().catch(() => {});
     await cancelEarlyBird();
+    await devices.reset(); // a live strap would keep queueing HR into the next account
     await clearToken();
     await clearLocalData();
     router.replace('/login');
@@ -117,12 +183,16 @@ export default function Settings() {
 
   async function logout() {
     // Signing out wipes the device, so upload what is queued first.
-    if (athlete) await flushAll(athlete.id);
-    const pending = await pendingTotal();
-    if (pending === 0) return signOut();
+    if (athlete) await flushAll(athlete.id).catch(() => {});
+    const [pending, rejected] = await Promise.all([pendingTotal(), rejectedCount()]);
+    if (pending + rejected === 0) return signOut();
+    const parts = [
+      pending > 0 && `${pending} ${pending === 1 ? 'item ainda não foi enviado' : 'itens ainda não foram enviados'} ao servidor`,
+      rejected > 0 && `${rejected} ${rejected === 1 ? 'item foi recusado' : 'itens foram recusados'} pelo servidor`,
+    ].filter(Boolean);
     Alert.alert(
       'Dados não sincronizados',
-      `${pending} ${pending === 1 ? 'item ainda não foi enviado' : 'itens ainda não foram enviados'} ao servidor e serão perdidos ao sair.`,
+      `${parts.join(' e ')}. Tudo isso será perdido ao sair.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Sair mesmo assim', style: 'destructive', onPress: signOut },
@@ -130,35 +200,70 @@ export default function Settings() {
     );
   }
 
+  async function exportData() {
+    try {
+      const data = await api.exportData();
+      const file = new File(Paths.cache, `knightfall-dados-${isoDay()}.json`);
+      file.write(JSON.stringify(data, null, 2));
+      if (await Sharing.isAvailableAsync()) {
+        try {
+          await Sharing.shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Seus dados do Knightfall' });
+        } finally {
+          // Health data must not linger in the cache once it has been handed over.
+          try {
+            if (file.exists) file.delete();
+          } catch {
+            // the OS cleans the cache eventually
+          }
+        }
+      } else {
+        setMsg({ text: `Arquivo salvo em ${file.uri}`, tone: 'ok', at: 'account' });
+      }
+    } catch (e) {
+      setMsg({ text: e instanceof Error ? e.message : 'Falha ao exportar (requer conexão)', tone: 'err', at: 'account' });
+    }
+  }
+
+  async function deleteAccount(password: string) {
+    try {
+      await api.deleteAccount(password);
+    } catch (e) {
+      setMsg({ text: e instanceof Error ? e.message : 'Falha ao excluir (requer conexão)', tone: 'err', at: 'account' });
+      return;
+    }
+    await cancelEarlyBird();
+    await devices.reset();
+    await clearToken();
+    await clearLocalData();
+    router.replace('/login');
+  }
+
   const provider = healthProvider();
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets>
         <T variant="title">Ajustes</T>
-        {msg && (
-          <Panel accent={msg.tone === 'ok' ? colors.kryptonite : colors.amber}>
-            <T color={msg.tone === 'ok' ? colors.kryptonite : colors.amber}>{msg.text}</T>
-          </Panel>
-        )}
 
         <Panel>
           <T variant="label">Perfil</T>
-          <Field label="Nome" value={form.name} onChangeText={(v) => setForm({ ...form, name: v })} />
+          <Field label="Nome" value={form.name} onChangeText={(v) => edit({ name: v })} autoComplete="name" />
           <Row>
-            <Field label="Peso kg" value={form.weight} onChangeText={(v) => setForm({ ...form, weight: v })} keyboardType="decimal-pad" />
-            <Field label="Gordura %" value={form.bf} onChangeText={(v) => setForm({ ...form, bf: v })} keyboardType="decimal-pad" />
-            <Field label="Altura cm" value={form.height} onChangeText={(v) => setForm({ ...form, height: v })} keyboardType="number-pad" />
+            <Field label="Peso kg" value={form.weight} onChangeText={(v) => edit({ weight: v })} keyboardType="decimal-pad" />
+            <Field label="Gordura %" value={form.bf} onChangeText={(v) => edit({ bf: v })} keyboardType="decimal-pad" />
+            <Field label="Altura cm" value={form.height} onChangeText={(v) => edit({ height: v })} keyboardType="number-pad" />
           </Row>
           <Row>
-            <Field label="Nascimento" value={form.birth} onChangeText={(v) => setForm({ ...form, birth: v })} keyboardType="number-pad" />
-            <Field label="FC máx (opc.)" value={form.hrmax} onChangeText={(v) => setForm({ ...form, hrmax: v })}
+            <Field label="Nascimento" value={form.birth} onChangeText={(v) => edit({ birth: v })} keyboardType="number-pad"
+              maxLength={4} placeholder="ano" />
+            <Field label="Freq. cardíaca máx. (opcional)" value={form.hrmax} onChangeText={(v) => edit({ hrmax: v })}
               keyboardType="number-pad" placeholder={athlete.hr_max ? String(athlete.hr_max) : '—'} />
           </Row>
           <Row>
             {(['male', 'female'] as Sex[]).map((v) => (
               <Button key={v} tone={form.sex === v ? 'primary' : 'ghost'} label={v === 'male' ? 'Masculino' : 'Feminino'}
-                onPress={() => setForm({ ...form, sex: v })} style={{ flex: 1 }} />
+                onPress={() => edit({ sex: v })} style={{ flex: 1 }} />
             ))}
           </Row>
           <Button
@@ -167,7 +272,10 @@ export default function Settings() {
               save(
                 {
                   name: form.name.trim() || athlete.name,
-                  bodyweight_kg: num(form.weight) ?? athlete.bodyweight_kg,
+                  // Only a typed change: resending the stored value would override the 7-day trend.
+                  ...(form.weight !== str(athlete.bodyweight_kg) && num(form.weight) != null
+                    ? { bodyweight_kg: num(form.weight) }
+                    : {}),
                   body_fat_pct: num(form.bf),
                   height_cm: num(form.height),
                   birth_year: num(form.birth),
@@ -176,9 +284,11 @@ export default function Settings() {
                   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                 },
                 'Perfil salvo.',
+                'profile',
               )
             }
           />
+          <Feedback msg={msg} at="profile" />
         </Panel>
 
         <Panel>
@@ -189,7 +299,8 @@ export default function Settings() {
                 onPress={() => changeTier(t)} style={{ flex: 1, paddingHorizontal: 4 }} />
             ))}
           </Row>
-          <T variant="label" style={{ textTransform: 'none' }}>Ciclo atual iniciado em {athlete.cycle_start}.</T>
+          <T variant="hint">Ciclo atual iniciado em {athlete.cycle_start}.</T>
+          <Feedback msg={msg} at="tier" />
         </Panel>
 
         <Panel>
@@ -203,21 +314,20 @@ export default function Settings() {
                 </T>
               </View>
               {devices.connected[role] && (
-                <Pressable onPress={() => devices.forget(role)} hitSlop={10} accessibilityRole="button">
-                  <T variant="label">Esquecer</T>
-                </Pressable>
+                <TextLink label="Esquecer" accessibilityLabel={`Esquecer ${devices.connected[role]}`}
+                  onPress={() => devices.forget(role)} />
               )}
             </Row>
           ))}
-          <Button tone="ghost" label={devices.scanning ? 'Buscando…' : 'Buscar dispositivos'} onPress={devices.scan}
-            disabled={devices.scanning} />
-          {devices.error && <T color={colors.amber}>{devices.error}</T>}
-          {devices.found.map((d: FoundDevice) => (
+          <Button tone="ghost" label={scan.scanning ? 'Buscando…' : 'Buscar dispositivos'} onPress={scan.scan}
+            disabled={scan.scanning} />
+          {scan.error && <T color={colors.amber}>{scan.error}</T>}
+          {scan.found.map((d: FoundDevice) => (
             <View key={d.id} style={{ gap: space.xs }}>
               <Divider />
               <Row style={{ justifyContent: 'space-between' }}>
                 <T style={{ flex: 1 }} numberOfLines={1}>{d.name}</T>
-                <T variant="label">{d.rssi} dBm</T>
+                <T variant="label">{signalLabel(d.rssi)} ({d.rssi} dBm)</T>
               </Row>
               <Row>
                 {d.roles.map((role) => (
@@ -235,8 +345,9 @@ export default function Settings() {
               <T variant="label">{provider.name}</T>
               <Badge label={health ? 'Ativo' : 'Desligado'} color={health ? colors.kryptonite : colors.concrete} />
             </Row>
-            <T variant="label" style={{ textTransform: 'none' }}>
-              VFC, FC de repouso e sono da última noite alimentam o Batsuit Readiness Score. Garmin, Oura e Whoop
+            <T variant="hint">
+              VFC (variabilidade da frequência cardíaca), frequência cardíaca de repouso e sono da última noite
+              alimentam a prontidão; o peso de uma balança conectada entra na média de 7 dias. Garmin, Oura e Whoop
               entram via sincronização do app do fabricante com o {provider.name}.
             </T>
             <Row>
@@ -244,22 +355,151 @@ export default function Settings() {
                 style={{ flex: 1 }} />
               {health && <Button tone="ghost" label="Sincronizar agora" onPress={syncNow} style={{ flex: 1 }} />}
             </Row>
+            <Feedback msg={msg} at="health" />
           </Panel>
         )}
 
+        <ExactAlarmPanel />
+
+        <EquipmentPanel athlete={athlete} onSave={(equipment) => save({ equipment }, 'Equipamentos salvos.', 'equipment')}
+          feedback={<Feedback msg={msg} at="equipment" />} />
+
         <Panel>
-          <T variant="label">Conta</T>
-          <T variant="label" style={{ textTransform: 'none' }}>
+          <T variant="label">Conta e dados (LGPD)</T>
+          <T variant="hint">
             Servidor: {process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000'}
           </T>
+          <T variant="hint">
+            Pela LGPD (Lei Geral de Proteção de Dados) você pode baixar tudo o que o app guarda sobre você e excluir a
+            conta a qualquer momento.
+          </T>
+          <Button tone="ghost" label="Exportar meus dados" onPress={exportData} />
           <Button tone="alert" label="Sair" onPress={logout} />
+          <DeleteAccount onDelete={deleteAccount} />
+          <Feedback msg={msg} at="account" />
         </Panel>
+
+        <Glossary />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/** Only while Android may hold alarms back; coming back from the system screen checks again. */
+function ExactAlarmPanel() {
+  const [allowed, setAllowed] = useState(exactAlarmsAllowed);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setAllowed(exactAlarmsAllowed());
+    });
+    return () => sub.remove();
+  }, []);
+  if (allowed) return null;
+  return (
+    <Panel accent={colors.amber}>
+      <T variant="label">Avisos na hora certa</T>
+      <T variant="hint">
+        Com a tela travada, o Android pode atrasar o fim do descanso e o despertador do Early Bird. Ative
+        “Alarmes e lembretes” para o Knightfall e eles tocam no segundo exato.
+      </T>
+      <Button tone="ghost" label="Ativar alarmes e lembretes" onPress={openExactAlarmSettings} />
+    </Panel>
+  );
+}
+
+function EquipmentPanel({
+  athlete,
+  onSave,
+  feedback,
+}: {
+  athlete: Athlete;
+  onSave: (e: Implement[] | null) => Promise<void>;
+  feedback: ReactNode;
+}) {
+  const [picked, setPicked] = useState<Set<Implement>>(() => new Set(athlete.equipment));
+  const full = EQUIPMENT.every((e) => picked.has(e.id));
+  const toggle = (id: Implement) =>
+    setPicked((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  return (
+    <Panel>
+      <T variant="label">Equipamentos disponíveis</T>
+      <T variant="hint">
+        O sorteio de exercícios usa só o que estiver marcado (peso corporal sempre conta). Na sessão, “Trocar exercício”
+        mostra alternativas com o mesmo padrão de movimento.
+      </T>
+      <View style={styles.chips}>
+        {EQUIPMENT.map((e) => (
+          <Chip key={e.id} role="checkbox" label={e.label} selected={picked.has(e.id)} onPress={() => toggle(e.id)} />
+        ))}
+      </View>
+      <Row>
+        <Button label="Salvar equipamentos" onPress={() => onSave(full ? null : [...picked, 'bodyweight'])}
+          style={{ flex: 1 }} />
+        <Button tone="ghost" label="Academia completa" onPress={() => setPicked(new Set(EQUIPMENT.map((e) => e.id)))}
+          style={{ flex: 1 }} />
+      </Row>
+      {feedback}
+    </Panel>
+  );
+}
+
+function DeleteAccount({ onDelete }: { onDelete: (password: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  if (!open) return <Button tone="alert" label="Excluir minha conta" onPress={() => setOpen(true)} />;
+  return (
+    <View style={{ gap: space.sm }}>
+      <T color={colors.amber}>
+        Apaga a conta e todos os treinos, pesagens, dieta e dados de saúde do servidor. Não dá para desfazer.
+      </T>
+      <Field label="Senha" value={password} onChangeText={setPassword} secureTextEntry placeholder="Confirme com sua senha"
+        autoComplete="current-password" textContentType="password" style={{ fontSize: 16 }} />
+      <Row>
+        <Button tone="ghost" label="Cancelar" onPress={() => setOpen(false)} style={{ flex: 1 }} />
+        <Button tone="alert" label="Excluir tudo" disabled={!password}
+          onPress={() =>
+            Alert.alert('Excluir a conta?', 'Todos os dados serão apagados permanentemente.', [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Excluir', style: 'destructive', onPress: () => onDelete(password) },
+            ])
+          }
+          style={{ flex: 1 }} />
+      </Row>
+    </View>
+  );
+}
+
+function Glossary() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Panel>
+      <Pressable onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }}
+        style={{ minHeight: 44, justifyContent: 'center' }}>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <T variant="label">Glossário de siglas e termos</T>
+          <T variant="label">{open ? '▴' : '▾'}</T>
+        </Row>
+      </Pressable>
+      {open &&
+        GLOSSARY.map((g) => (
+          <View key={g.term} style={{ gap: 2, marginTop: space.sm }}>
+            <T>
+              <T style={{ fontFamily: fonts.monoBold }}>{g.term}</T> — {g.meaning}
+            </T>
+            <T variant="hint">{g.detail}</T>
+          </View>
+        ))}
+    </Panel>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.void },
   content: { padding: space.lg, gap: space.md, paddingBottom: space.xxl },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
 });

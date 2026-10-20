@@ -1,7 +1,8 @@
 """RPE-based load autoregulation.
 
 Primary path: estimated 1RM from recent logged sets (see strength.py), then
-the load that should land on the target reps @ RPE. Fallback (timed carries,
+the load that should land on the target reps @ RPE (explosive work: a fixed
+share of the 1RM). Fallback (timed carries,
 sleds, sets logged without reps/RPE): the last top set and its RPE decide
 whether the load goes up, holds or drops. Loads snap to the smallest
 practical jump for each implement.
@@ -13,9 +14,9 @@ import math
 from collections.abc import Iterable
 
 from .catalog import Exercise
-from .domain import Implement
+from .domain import Implement, Modality
 from .records import SetRecord
-from .strength import current_e1rm, e1rm_history, prescribe, system_extra
+from .strength import EXPLOSIVE_PCT_1RM, current_e1rm, e1rm_history, load_at, prescribe, system_extra
 
 INCREMENT_KG: dict[Implement, float] = {
     Implement.DUMBBELL: 2.0,
@@ -52,9 +53,13 @@ def suggest_load(ex: Exercise, last: SetRecord | None, target_rpe: float | None)
         return _snap(max(load * 1.05, load + step), step, math.ceil)
     if gap >= 1:  # a bit easy
         return _snap(max(load * 1.025, load + step), step, math.ceil)
-    if gap < -0.5:  # overshot the target effort
-        return max(0.0, _snap(load * 0.95, step, math.floor))
+    if gap < -0.5:  # overshot the target effort: ~5 %, to the nearest jump (holds when one jump is far more)
+        return max(0.0, _snap(load * 0.95, step, _half_up))
     return load
+
+
+def _half_up(x: float) -> int:
+    return math.floor(x + 0.5)
 
 
 def _snap(value: float, step: float, rounding) -> float:
@@ -67,6 +72,7 @@ def recommend_load(
     target_reps: int | None,
     target_rpe: float | None,
     bodyweight_kg: float | None,
+    modality: Modality | None = None,
 ) -> float | None:
     records = list(records)
     step = INCREMENT_KG.get(ex.implement)
@@ -74,7 +80,10 @@ def recommend_load(
         return None
     if target_reps and target_rpe and (ex.implement != Implement.BODYWEIGHT or bodyweight_kg):
         extra = system_extra(ex, bodyweight_kg or 0.0)
-        e1rm = current_e1rm(e1rm_history(records, ex.id, extra))
+        latest = max((r.performed_on for r in records), default=None)  # stands in for "today"
+        e1rm = current_e1rm(e1rm_history(records, ex.id, extra), latest)
         if e1rm is not None:
+            if modality == Modality.EXPLOSIVE:
+                return load_at(e1rm, EXPLOSIVE_PCT_1RM, step, extra)
             return prescribe(e1rm, target_reps, target_rpe, step, extra)
     return suggest_load(ex, last_top_set(records, ex.id), target_rpe)

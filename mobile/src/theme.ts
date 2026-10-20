@@ -8,7 +8,8 @@ export const colors = {
   bone: '#D4D7DC', // primary text
   amber: '#D97706', // alerts / warnings / locks
   kryptonite: '#10B981', // completed only
-  red: '#B91C1C', // readiness red
+  red: '#B91C1C', // readiness red: fills, borders and banners only
+  redText: '#F87171', // red as text: #B91C1C is ~3:1 on the dark panels, below the 4.5:1 minimum
 } as const;
 
 export const fonts = {
@@ -23,4 +24,11 @@ export const levelColor = {
   green: colors.kryptonite,
   amber: colors.amber,
   red: colors.red,
+} as const;
+
+/** Readiness levels as text (scores, written levels): the readable shade of red. */
+export const levelTextColor = {
+  green: colors.kryptonite,
+  amber: colors.amber,
+  red: colors.redText,
 } as const;

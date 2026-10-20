@@ -2,31 +2,45 @@ from __future__ import annotations
 
 import secrets
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
+from fastapi import APIRouter, Body, HTTPException, Query
+from sqlalchemy import delete, select
 
 from .. import armor
 from ..catalog import EXERCISES
-from ..db import Athlete, ReadinessEntry, SetLog, athlete_records
-from ..domain import ReadinessSummary, Session, Tier
+from ..db import Athlete, ReadinessEntry, SetLog, athlete_records, insert_new
+from ..domain import Prescription, ReadinessSummary, Session, Tier
+from ..generator import alternatives
 from ..strength import current_e1rm, e1rm_history, system_extra
 from ..tiers import TIERS
 from .deps import AthleteDep, CurrentUser, Db
 from .schemas import (
+    MAX_LOG_BATCH,
     ArmorLoadOut,
     AthleteCreate,
     AthleteOut,
     AthleteUpdate,
+    CycleShiftIn,
+    Day,
+    MissedOut,
     ReadinessIn,
     SetLogIn,
     StrengthOut,
     SyncResult,
     TierOut,
 )
-from .services import athlete_out, local_today, readiness_for, require_waiver, session_for
+from .services import (
+    athlete_out,
+    local_today,
+    plan_context,
+    position,
+    readiness_for,
+    reject_foreign_ids,
+    require_waiver,
+    session_for,
+)
 
 router = APIRouter(tags=["training"])
 
@@ -34,6 +48,10 @@ MAX_SCHEDULE_DAYS = 31
 PROFILE_FIELDS = ("body_fat_pct", "height_cm", "birth_year", "sex", "hr_max_override", "timezone",
                   "early_bird_enabled", "wake_time")
 NOT_NULL_FIELDS = {"name", "bodyweight_kg", "timezone", "early_bird_enabled", "wake_time"}
+
+
+def _equipment(value: list | None) -> str | None:
+    return None if value is None else ",".join(sorted({str(x) for x in value}))
 
 
 @router.get("/tiers", response_model=list[TierOut])
@@ -72,6 +90,8 @@ def create_athlete(body: AthleteCreate, user: CurrentUser, s: Db) -> AthleteOut:
     for f in PROFILE_FIELDS:
         if (v := getattr(body, f)) is not None:
             setattr(a, f, v)
+    a.equipment = _equipment(body.equipment)
+    a.health_consent_at = datetime.now(timezone.utc) if body.accept_health_data else None
     a.cycle_start = body.cycle_start or local_today(a)
     s.add(a)
     s.commit()
@@ -88,6 +108,8 @@ def update_athlete(body: AthleteUpdate, a: AthleteDep, s: Db) -> AthleteOut:
     for f in ("name", "bodyweight_kg", *PROFILE_FIELDS):
         if f in body.model_fields_set and not (f in NOT_NULL_FIELDS and getattr(body, f) is None):
             setattr(a, f, getattr(body, f))
+    if "equipment" in body.model_fields_set:
+        a.equipment = _equipment(body.equipment)
     if body.tier is not None and body.tier.value != a.tier:
         a.waiver_accepted_at = require_waiver(body.tier, body.accept_brawler_waiver, a.waiver_accepted_at)
         a.tier = body.tier.value
@@ -97,15 +119,28 @@ def update_athlete(body: AthleteUpdate, a: AthleteDep, s: Db) -> AthleteOut:
 
 
 @router.get("/athletes/{athlete_id}/sessions/{day}", response_model=Session)
-def get_session(day: date, a: AthleteDep, s: Db) -> Session:
+def get_session(day: Day, a: AthleteDep, s: Db) -> Session:
     return session_for(s, a, day, with_readiness=True)
+
+
+@router.get("/athletes/{athlete_id}/sessions/{day}/alternatives", response_model=list[Prescription])
+def get_alternatives(
+    day: Day, a: AthleteDep, s: Db,
+    block: Annotated[int, Query(ge=1, le=3)], index: Annotated[int, Query(ge=0, le=20)],
+) -> list[Prescription]:
+    """Other exercises for the same slot (same movement pattern, available equipment)."""
+    try:
+        return alternatives(Tier(a.tier), position(a, day), a.chaos_seed, block, index,
+                            **plan_context(s, a, day, with_readiness=True))
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
 
 
 @router.get("/athletes/{athlete_id}/schedule", response_model=list[Session])
 def get_schedule(
     a: AthleteDep,
     s: Db,
-    start: date | None = None,
+    start: Day | None = None,
     days: Annotated[int, Query(ge=1, le=MAX_SCHEDULE_DAYS)] = 16,
 ) -> list[Session]:
     """Upcoming sessions without readiness adjustment, for offline caching."""
@@ -131,23 +166,63 @@ def put_readiness(body: ReadinessIn, a: AthleteDep, s: Db) -> ReadinessSummary:
 
 
 @router.post("/athletes/{athlete_id}/logs", response_model=SyncResult)
-def post_logs(body: list[SetLogIn], a: AthleteDep, s: Db) -> SyncResult:
+def post_logs(
+    body: Annotated[list[SetLogIn], Body(max_length=MAX_LOG_BATCH)], a: AthleteDep, s: Db
+) -> SyncResult:
     ids = [str(item.id) for item in body]
-    existing = set(s.scalars(select(SetLog.id).where(SetLog.id.in_(ids)))) if ids else set()
-    accepted = 0
-    for item in body:
-        key = str(item.id)
-        if key in existing:
-            continue
-        existing.add(key)
-        s.add(SetLog(athlete_id=a.id, **item.model_dump(exclude={"id"}), id=key))
-        accepted += 1
+    reject_foreign_ids(s, SetLog, ids, a)
+    rows = [{**item.model_dump(exclude={"id"}), "id": str(item.id), "athlete_id": a.id} for item in body]
+    accepted = insert_new(s, SetLog, rows)
     s.commit()
     return SyncResult(accepted=accepted, duplicates=len(body) - accepted)
 
 
+@router.delete("/athletes/{athlete_id}/logs/{log_id}", status_code=204)
+def delete_log(log_id: str, a: AthleteDep, s: Db) -> None:
+    """Undo a logged set. Idempotent, so an offline retry is harmless."""
+    s.execute(delete(SetLog).where(SetLog.id == log_id, SetLog.athlete_id == a.id))
+    s.commit()
+
+
+def _missed_days(s: Db, a: Athlete, day: date) -> list[date]:
+    """Training days right before `day` with nothing logged (most recent last)."""
+    cycle_len = TIERS[Tier(a.tier)].cycle_length
+    trained = set(s.scalars(select(SetLog.performed_on).where(
+        SetLog.athlete_id == a.id, SetLog.performed_on < day,
+        SetLog.performed_on >= day - timedelta(days=cycle_len))))
+    missed: list[date] = []
+    d = day - timedelta(days=1)
+    while d >= a.cycle_start and len(missed) < cycle_len - 1:
+        plan = session_for(s, a, d, with_readiness=False, records=[])
+        if not plan.is_training_day or d in trained:
+            break
+        missed.append(d)
+        d -= timedelta(days=1)
+    return sorted(missed)
+
+
+@router.get("/athletes/{athlete_id}/cycle/missed", response_model=MissedOut)
+def get_missed(a: AthleteDep, s: Db, day: Day | None = None) -> MissedOut:
+    """Training days just before `day` with no sets logged: candidates to make up by shifting the cycle."""
+    return MissedOut(day=day or local_today(a), missed=_missed_days(s, a, day or local_today(a)))
+
+
+@router.post("/athletes/{athlete_id}/cycle/shift", response_model=AthleteOut)
+def shift_cycle(body: CycleShiftIn, a: AthleteDep, s: Db) -> AthleteOut:
+    """Push the cycle forward `days` days, so the oldest missed session lands on today.
+
+    Nothing logged moves: only which session each upcoming date maps to.
+    """
+    today = local_today(a)
+    if a.cycle_start + timedelta(days=body.days) > today:
+        raise HTTPException(422, "O ciclo não pode começar depois de hoje.")
+    a.cycle_start += timedelta(days=body.days)
+    s.commit()
+    return athlete_out(a)
+
+
 @router.get("/athletes/{athlete_id}/armor-load", response_model=ArmorLoadOut)
-def get_armor_load(a: AthleteDep, s: Db, on: date | None = None) -> ArmorLoadOut:
+def get_armor_load(a: AthleteDep, s: Db, on: Day | None = None) -> ArmorLoadOut:
     today = on or local_today(a)
     records = athlete_records(s, a.id)
     cycle_len = TIERS[Tier(a.tier)].cycle_length

@@ -1,8 +1,10 @@
 import json
+import os
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from knightfall.api import create_app
 from knightfall.db import Database
@@ -33,12 +35,26 @@ def off_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, content=json.dumps({"status": 0}))
 
 
+# Set to a PostgreSQL URL (CI does) to run the whole suite against Postgres instead of SQLite.
+PG_URL = os.environ.get("KNIGHTFALL_TEST_DATABASE_URL")
+
+
+def _fresh_postgres(url: str) -> Database:
+    db = Database(url)
+    with db.engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+    return db
+
+
 @pytest.fixture
 def client(tmp_path):
     http = httpx.Client(transport=httpx.MockTransport(off_handler))
-    app = create_app(Database(f"sqlite:///{tmp_path / 'test.db'}"), http=http)
+    db = _fresh_postgres(PG_URL) if PG_URL else Database(f"sqlite:///{tmp_path / 'test.db'}")
+    app = create_app(db, http=http)
     with TestClient(app) as c:
         yield c
+    db.engine.dispose()
 
 
 def register(client, email="bruce@wayne.com"):

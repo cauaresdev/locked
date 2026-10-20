@@ -1,4 +1,4 @@
-import { buildTimeline, cues, stateAt, totalMs } from '../tempo';
+import { buildTimeline, cues, metronomeView, sameView, stateAt, totalMs } from '../tempo';
 
 const PULL_UP = { eccentric: 4, bottom_pause: 0, concentric: 4, top_pause: 1 };
 
@@ -34,5 +34,24 @@ describe('cadence timeline', () => {
       'done',
     ]);
     expect(c.map((x) => x.atMs)).toEqual([0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000]);
+  });
+});
+
+describe('metronome view', () => {
+  const t = buildTimeline(PULL_UP, 2, 'pull_vertical');
+
+  it('counts the lead-in down, then follows the timeline', () => {
+    expect(metronomeView(t, -3000).leadIn).toBe(3);
+    expect(metronomeView(t, -2001).leadIn).toBe(3);
+    expect(metronomeView(t, -1).leadIn).toBe(1);
+    expect(metronomeView(t, -1)).toMatchObject({ rep: 1, phase: 'concentric', secondInPhase: 1 });
+    expect(metronomeView(t, 4500)).toMatchObject({ leadIn: 0, rep: 1, phase: 'top_pause', secondInPhase: 1 });
+  });
+
+  it('changes only on whole-second or phase boundaries', () => {
+    expect(sameView(metronomeView(t, 1000), metronomeView(t, 1950))).toBe(true);
+    expect(sameView(metronomeView(t, 1950), metronomeView(t, 2000))).toBe(false);
+    expect(sameView(metronomeView(t, -2500), metronomeView(t, -2050))).toBe(true);
+    expect(sameView(metronomeView(t, -2050), metronomeView(t, -1950))).toBe(false);
   });
 });

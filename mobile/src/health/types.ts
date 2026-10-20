@@ -3,6 +3,7 @@ export interface NightReading {
   hrv_method: 'rmssd' | 'sdnn';
   resting_hr: number | null;
   sleep_hours: number | null;
+  weight_kg: number | null; // latest morning weigh-in (smart scale synced to the health store)
 }
 
 export interface HealthProvider {

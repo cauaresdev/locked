@@ -1,5 +1,5 @@
 import type { NutritionDay, Product, Staple } from '../../api/types';
-import { entryFromProduct, entryFromStaple, portionAlerts, withPending } from '../nutrition';
+import { entryFromProduct, entryFromStaple, portionAlerts, withPending, withoutDeleted } from '../nutrition';
 
 const product = (over: Partial<Product> = {}): Product => ({
   barcode: '789', found: true, name: 'Sopa', brand: null, kcal_100g: 350, protein_100g: 8, carbs_100g: 60,
@@ -33,4 +33,20 @@ it('overlays pending entries onto the cached day', () => {
   expect(out.consumed.sodium_mg).toBe(1200);
   expect(out.meals[0].consumed.sodium_mg).toBe(1200);
   expect(out.meals[1].consumed.sodium_mg).toBe(0);
+});
+
+it('hides entries whose delete is still queued', () => {
+  const zero = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, sodium_mg: 0 };
+  const day = { day: '2026-03-02', entries: [], consumed: zero, alerts: [],
+    meals: [{ meal: 'dinner', consumed: zero }, { meal: 'breakfast', consumed: zero }] } as unknown as NutritionDay;
+  const both = withPending(day, [entryFromProduct('x', '2026-03-02', 'dinner', product(), 60),
+    entryFromProduct('z', '2026-03-02', 'breakfast', product(), 30)]);
+  const out = withoutDeleted({ ...both, alerts: [{ level: 'red', code: 'sodium_meal', message: '', meal: 'dinner', entry_id: 'x' }] },
+    ['x', 'unknown']);
+  expect(out.entries.map((e) => e.id)).toEqual(['z']);
+  expect(out.alerts).toEqual([]);
+  expect(out.consumed.sodium_mg).toBe(600);
+  expect(out.meals[0].consumed.sodium_mg).toBe(0);
+  expect(out.meals[1].consumed.sodium_mg).toBe(600);
+  expect(withoutDeleted(both, [])).toBe(both);
 });

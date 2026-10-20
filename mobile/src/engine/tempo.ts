@@ -69,6 +69,28 @@ export function stateAt(timeline: Segment[], elapsedMs: number): CadenceState {
   };
 }
 
+export type MetronomeView = CadenceState & { leadIn: number };
+
+/** What the metronome shows `elapsedMs` after the first rep starts (negative: the 3-2-1 lead-in). */
+export function metronomeView(timeline: Segment[], elapsedMs: number): MetronomeView {
+  return {
+    ...stateAt(timeline, Math.max(0, elapsedMs)),
+    leadIn: elapsedMs < 0 ? Math.ceil(-elapsedMs / 1000) : 0,
+  };
+}
+
+/** Same display: the metronome re-renders only when what it shows changes, not on every poll. */
+export function sameView(a: MetronomeView, b: MetronomeView): boolean {
+  return (
+    a.done === b.done &&
+    a.rep === b.rep &&
+    a.phase === b.phase &&
+    a.secondInPhase === b.secondInPhase &&
+    a.phaseSeconds === b.phaseSeconds &&
+    a.leadIn === b.leadIn
+  );
+}
+
 export type Cue = { atMs: number; kind: 'phase' | 'tick' | 'done' };
 
 // Audio/haptic cues: a strong cue at each phase change, a dry tick on every
