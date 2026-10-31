@@ -6,6 +6,8 @@ import type {
   AuthResult,
   EarlyBird,
   FoodEntryInput,
+  Measurements,
+  MeasurementsInput,
   Missed,
   NutritionDay,
   Prescription,
@@ -14,6 +16,8 @@ import type {
   Product,
   ReadinessInput,
   ReadinessSummary,
+  Routine,
+  RoutineCheck,
   Session,
   SetLog,
   Staple,
@@ -127,6 +131,9 @@ export const api = {
   putWeight: (id: string, body: WeighInInput) => request<Weight>(`/athletes/${id}/weight`, json('PUT', body)),
   weight: (id: string, days = 90) => request<Weight>(`/athletes/${id}/weight?days=${days}`),
   progress: (id: string, days = 60) => request<Progress>(`/athletes/${id}/progress?days=${days}`),
+  measurements: (id: string) => request<Measurements>(`/athletes/${id}/measurements`),
+  putMeasurements: (id: string, body: MeasurementsInput) =>
+    request<Measurements>(`/athletes/${id}/measurements`, json('PUT', body)),
 
   exportData: () => request<Record<string, unknown>>('/auth/export'),
   deleteAccount: (password: string) => request<void>('/auth/account', json('DELETE', { password })),
@@ -136,4 +143,8 @@ export const api = {
   earlyBird: (id: string, day: string) => request<EarlyBird>(`/athletes/${id}/early-bird/${day}`),
   wake: (id: string, day: string, wokeAt: string) =>
     request<EarlyBird>(`/athletes/${id}/early-bird/${day}/wake`, json('PUT', { woke_at: wokeAt })),
+
+  routine: (id: string, day: string) => request<Routine>(`/athletes/${id}/routine/${day}`),
+  setRoutineItem: (id: string, day: string, item: string, body: RoutineCheck) =>
+    request<Routine>(`/athletes/${id}/routine/${day}/items/${item}`, json('PUT', body)),
 };

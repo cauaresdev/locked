@@ -1,15 +1,15 @@
 import { Redirect } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
-import { Text, type ColorValue } from 'react-native';
+import type { ColorValue } from 'react-native';
 
 import { getToken } from '../../auth';
 import { useDeviceControls } from '../../ble/devices';
-import { colors, fonts } from '../../theme';
+import { Icon, type IconName } from '../../components/Icon';
+import { colors } from '../../theme';
 
-// Monospace glyphs instead of an icon font: fits the industrial look and adds no dependency.
-const glyph = (g: string) =>
-  function Icon({ color }: { color: ColorValue }) {
-    return <Text style={{ color, fontFamily: fonts.monoBold, fontSize: 16 }}>{g}</Text>;
+const icon = (name: IconName) =>
+  function TabIcon({ color }: { color: ColorValue }) {
+    return <Icon name={name} size={22} color={color} />;
   };
 
 export default function TabLayout() {
@@ -22,22 +22,27 @@ export default function TabLayout() {
         headerShown: false,
         // Hidden tabs stay mounted; frozen, they skip the renders that live BLE readings would cause.
         freezeOnBlur: true,
-        tabBarActiveTintColor: colors.bone,
-        tabBarInactiveTintColor: colors.concrete,
-        tabBarStyle: { backgroundColor: colors.void, borderTopColor: colors.seam },
-        tabBarLabelStyle: { fontFamily: fonts.mono, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase' },
+        tabBarActiveTintColor: colors.text,
+        tabBarInactiveTintColor: colors.textFaint,
+        tabBarStyle: { backgroundColor: colors.bg, borderTopWidth: 0, elevation: 0 },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
       }}
     >
-      <Tabs.Screen name="today" options={{ title: 'Hoje', tabBarIcon: glyph('▣') }} />
-      <Tabs.Screen name="progress" options={{ title: 'Progresso', tabBarIcon: glyph('▲') }} />
-      <Tabs.Screen name="nutrition" options={{ title: 'Nutrição', tabBarIcon: glyph('◧') }} />
+      <Tabs.Screen name="today" options={{ title: 'Hoje', tabBarIcon: icon('home') }} />
+      <Tabs.Screen
+        name="routine"
+        // Not frozen: it opens Early Bird, and the heart icon shows a connected strap.
+        options={{ title: 'Rotina', tabBarIcon: icon(strap ? 'heart' : 'moon'), freezeOnBlur: false }}
+      />
+      <Tabs.Screen name="nutrition" options={{ title: 'Nutrição', tabBarIcon: icon('apple') }} />
+      <Tabs.Screen name="progress" options={{ title: 'Progresso', tabBarIcon: icon('chart') }} />
+      <Tabs.Screen name="settings" options={{ title: 'Perfil', tabBarIcon: icon('user') }} />
       <Tabs.Screen
         name="early-bird"
-        // Not frozen: its zone voice cues are driven by live HR renders and must keep
-        // speaking during the 30-min window even when another tab is showing.
-        options={{ title: 'Early Bird', tabBarIcon: glyph(strap ? '♥' : '◔'), freezeOnBlur: false }}
+        // Opened from Rotina, not from the tab bar. Not frozen: its zone voice cues are driven by
+        // live HR renders and must keep speaking during the 30-min window on any other tab.
+        options={{ href: null, title: 'Early Bird', freezeOnBlur: false }}
       />
-      <Tabs.Screen name="settings" options={{ title: 'Ajustes', tabBarIcon: glyph('≡') }} />
     </Tabs>
   );
 }

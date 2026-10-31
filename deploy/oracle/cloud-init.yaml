@@ -1,0 +1,14 @@
+#cloud-config
+# Paste into "Show advanced options > Initialization script" when creating the Ubuntu VM.
+# Installs Docker, opens 80/443 in the host firewall (Oracle's Ubuntu images reject them by default)
+# and schedules the daily database backup. The code arrives later from deploy.sh.
+package_update: true
+packages: [ca-certificates, curl, iptables-persistent]
+runcmd:
+  - curl -fsSL https://get.docker.com | sh
+  - usermod -aG docker ubuntu
+  - iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+  - iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+  - netfilter-persistent save
+  - mkdir -p /opt/knightfall && chown ubuntu:ubuntu /opt/knightfall
+  - echo '30 3 * * * ubuntu /opt/knightfall/deploy/oracle/backup.sh >> /opt/knightfall/backup.log 2>&1' > /etc/cron.d/knightfall-backup

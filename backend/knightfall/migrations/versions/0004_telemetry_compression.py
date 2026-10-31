@@ -29,8 +29,14 @@ def _hypertable(bind) -> bool:
     )).scalar())
 
 
+def _compression_licensed(bind) -> bool:
+    """Compression is a TimescaleDB Community feature; the Apache-only build (managed hosts) lacks it."""
+    return bind.execute(sa.text("SELECT current_setting('timescaledb.license', true)")).scalar() != "apache"
+
+
 def upgrade() -> None:
-    if not _hypertable(op.get_bind()):
+    bind = op.get_bind()
+    if not _hypertable(bind) or not _compression_licensed(bind):
         return
     op.execute(
         "ALTER TABLE telemetry_samples SET (timescaledb.compress, "

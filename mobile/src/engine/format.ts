@@ -100,6 +100,10 @@ const CYCLE_STRUCTURE: Record<string, string> = {
   '6_on_2_off': '6 dias de treino + 2 de folga',
   '5_of_7': '5 treinos em 7 dias',
   '4_of_7': '4 treinos em 7 dias',
+  '3_of_7': '3 treinos em 7 dias',
+  '6_of_7': '6 treinos em 7 dias',
+  '3_1_2_1': '3 treinos + recuperação + 2 treinos + descanso',
+  '2_1_3_1': '2 treinos + mobilidade + 3 treinos + descanso',
 };
 
 export function cycleStructureLabel(structure: string): string {

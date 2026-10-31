@@ -175,15 +175,15 @@ def test_chaos_never_shows_a_movement_twice_in_a_day(template_id, equipment):
 
 # Seed "golden". A change here reshuffles every athlete's program: update it only on purpose.
 GOLDEN = {
-    ("D2", 1): "sled_push:strength pallof_press:isometric half_kneeling_cable_press:strength "
-               "kb_bottoms_up_press:strength barbell_hip_thrust:strength airdyne_sprint:explosive "
-               "band_pull_apart:hypertrophy alt_db_open_curl_complex:hypertrophy db_bench_press:hypertrophy "
-               "db_shrug:hypertrophy",
-    ("D3", 4): "trap_bar_carry:strength landmine_rotation:strength barbell_hip_thrust:strength front_squat:tempo "
-               "lateral_squat:strength airdyne_sprint:conditioning kb_swing:hypertrophy "
-               "alt_hanging_knee_up:hypertrophy face_pull:hypertrophy db_reverse_lunge:hypertrophy",
+    ("D2", 1): "db_farmers_walk:strength cable_woodchop:strength incline_db_press:tempo "
+               "kb_bottoms_up_press:strength smith_hip_thrust:strength airdyne_sprint:explosive "
+               "db_lateral_raise:hypertrophy cable_triceps_pressdown:hypertrophy "
+               "chest_press_machine:hypertrophy barbell_shrug:hypertrophy",
+    ("D3", 4): "trap_bar_carry:strength dead_bug:strength barbell_hip_thrust:isometric leg_press:strength "
+               "lateral_squat:strength airdyne_sprint:conditioning smith_hip_thrust:hypertrophy "
+               "hanging_leg_raise:hypertrophy band_pull_apart:hypertrophy db_reverse_lunge:hypertrophy",
 }
-GOLDEN_DIGEST = "298d6d2c70e15bd9d5c57187b20603a22e9a2c42aee9a3341f7af173377f236e"  # all templates, cycles 0-11
+GOLDEN_DIGEST = "0308ebc9ad35893ac84a99338a0addd9f4ac7b4b7ca2b44cdf6fecc584dd4cb4"  # all templates, cycles 0-11
 
 
 def _golden_selection(tid, k):

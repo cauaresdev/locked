@@ -6,6 +6,7 @@ import type {
   FoodEntryInput,
   NutritionDay,
   Progress as ProgressReport,
+  Routine,
   Session,
   SetLog,
   TelemetrySample,
@@ -280,7 +281,9 @@ export async function clearLocalData(): Promise<void> {
       `),
     ),
   );
-  for (const key of [ATHLETE_KEY, DEVICES_KEY, HEALTH_KEY, PROGRESS_KEY]) Storage.removeItemSync(key);
+  for (const key of [ATHLETE_KEY, DEVICES_KEY, HEALTH_KEY, PROGRESS_KEY, ROUTINE_KEY, REMINDERS_KEY]) {
+    Storage.removeItemSync(key);
+  }
   athleteMemo = undefined;
 }
 
@@ -290,6 +293,8 @@ const DEVICES_KEY = 'ble_devices';
 const HEALTH_KEY = 'health_sync';
 const PROGRESS_KEY = 'progress_report';
 const OWNER_KEY = 'local_owner';
+const ROUTINE_KEY = 'routine_day';
+const REMINDERS_KEY = 'routine_reminders';
 
 export type DeviceRole = 'hr' | 'bike';
 export type SavedDevices = Partial<Record<DeviceRole, { id: string; name: string }>>;
@@ -309,6 +314,25 @@ export function healthSyncEnabled(): boolean {
 
 export function setHealthSyncEnabled(on: boolean): void {
   Storage.setItemSync(HEALTH_KEY, on ? '1' : '0');
+}
+
+/** Last routine the server returned, so the Rotina tab and the Today card open instantly offline. */
+export function cachedRoutine(day: string): Routine | null {
+  const raw = Storage.getItemSync(ROUTINE_KEY);
+  const r = raw ? (JSON.parse(raw) as Routine) : null;
+  return r?.day === day ? r : null;
+}
+
+export function storeRoutine(r: Routine): void {
+  Storage.setItemSync(ROUTINE_KEY, JSON.stringify(r));
+}
+
+export function routineRemindersEnabled(): boolean {
+  return Storage.getItemSync(REMINDERS_KEY) === '1';
+}
+
+export function setRoutineRemindersEnabled(on: boolean): void {
+  Storage.setItemSync(REMINDERS_KEY, on ? '1' : '0');
 }
 
 // Screens read the profile on every render (the live HR badge about once a second): parse it once.

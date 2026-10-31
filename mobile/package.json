@@ -56,7 +56,8 @@
     "typecheck": "tsc --noEmit",
     "gen:sounds": "python3 -I scripts/gen_sounds.py assets/sounds",
     "lint": "eslint src",
-    "gen:api": "npx --yes openapi-typescript@7.13.0 src/api/openapi.json -o src/api/schema.ts --default-non-nullable false"
+    "gen:api": "npx --yes openapi-typescript@7.13.0 src/api/openapi.json -o src/api/schema.ts --default-non-nullable false",
+    "gen:media": "python3 -I scripts/gen_exercise_media.py"
   },
   "private": true,
   "jest": {

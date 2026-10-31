@@ -6,10 +6,11 @@ import { Alert as Dialog, Pressable, RefreshControl, ScrollView, StyleSheet, Vie
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../api/client';
-import type { Alert, FoodEntryInput, Meal, NutritionDay } from '../../api/types';
+import type { Alert, FoodEntryInput, Meal, NutritionDay, NutritionGoal } from '../../api/types';
 import { FoodPicker } from '../../components/FoodPicker';
 import { Meter } from '../../components/Meter';
-import { Badge, Button, Checkbox, Divider, Panel, Row, T } from '../../components/ui';
+import { Icon } from '../../components/Icon';
+import { Badge, Button, Checkbox, Chip, Divider, Panel, ProgressBar, Row, ScreenHeader, Section, T } from '../../components/ui';
 import { addDays, isoDay } from '../../engine/format';
 import { MEAL_LABEL, withPending, withoutDeleted } from '../../engine/nutrition';
 import {
@@ -19,13 +20,14 @@ import {
   enqueueFood,
   pendingFood,
   pendingFoodDeletes,
+  storeAthlete,
   storedAthlete,
 } from '../../storage/db';
 import { flushNutrition } from '../../sync';
-import { colors, space } from '../../theme';
+import { colors, radius, space } from '../../theme';
 
-const ALERT_COLOR: Record<Alert['level'], string> = { red: colors.red, amber: colors.amber, info: colors.concrete };
-const ALERT_TEXT: Record<Alert['level'], string> = { red: colors.redText, amber: colors.amber, info: colors.concrete };
+const ALERT_COLOR: Record<Alert['level'], string> = { red: colors.danger, amber: colors.warning, info: colors.textMuted };
+const ALERT_TEXT: Record<Alert['level'], string> = { red: colors.danger, amber: colors.warning, info: colors.textMuted };
 const SOURCE_LABEL = { telemetry: 'medido pela frequência cardíaca', estimate: 'estimado', none: 'descanso' } as const;
 const LBM_LABEL = { body_fat: '% gordura', boer: 'fórmula de Boer', assumed: 'estimada — informe % gordura' } as const;
 
@@ -145,45 +147,60 @@ export default function Nutrition() {
 
   const isToday = day === isoDay();
 
+  async function setGoal(goal: NutritionGoal) {
+    if (!athleteId || goal === data?.goal) return;
+    try {
+      storeAthlete(await api.updateAthlete(athleteId, { nutrition_goal: goal }));
+      await load();
+    } catch {
+      setSupplementError('Não salvou o objetivo: sem conexão.');
+    }
+  }
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.concrete} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.textMuted} />}
       >
-        <Row style={{ justifyContent: 'space-between' }}>
-          <Pressable onPress={() => page(-1)} hitSlop={14} accessibilityRole="button" accessibilityLabel="Dia anterior">
-            <T variant="label">◂ anterior</T>
+        <ScreenHeader overline={GOAL[data?.goal ?? 'cut'].overline} title="Nutrição"
+          right={offline ? <Badge label="Offline" color={colors.warning} /> : undefined} />
+        <View style={styles.dayNav}>
+          <Pressable onPress={() => page(-1)} hitSlop={10} style={styles.navBtn} accessibilityRole="button"
+            accessibilityLabel="Dia anterior">
+            <Icon name="chevron-left" size={20} color={colors.textMuted} />
           </Pressable>
-          <T variant="label" color={colors.bone}>{isToday ? 'Hoje' : day}</T>
-          <Pressable onPress={() => page(1)} hitSlop={14} accessibilityRole="button" accessibilityLabel="Próximo dia">
-            <T variant="label">próximo ▸</T>
+          <T style={{ fontWeight: '600' }}>{isToday ? 'Hoje' : day}</T>
+          <Pressable onPress={() => page(1)} hitSlop={10} style={styles.navBtn} accessibilityRole="button"
+            accessibilityLabel="Próximo dia">
+            <Icon name="chevron-right" size={20} color={colors.textMuted} />
           </Pressable>
-        </Row>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <T variant="title">Six Pack Protocol</T>
-          {offline && <Badge label="Offline" color={colors.amber} />}
-        </Row>
+        </View>
 
         {!data && (
           <Panel>
-            <T color={colors.concrete}>{loaded && !loading ? 'Sem dados em cache para este dia.' : 'Carregando…'}</T>
+            <T color={colors.textMuted}>{loaded && !loading ? 'Sem dados em cache para este dia.' : 'Carregando…'}</T>
           </Panel>
         )}
 
         {data && (
           <>
-            <Panel>
-              <Row style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <T variant="metric">{data.consumed.kcal}</T>
+            <Panel style={{ gap: space.md, padding: space.xl }}>
+              <Row style={{ alignItems: 'baseline', gap: space.xs }}>
+                <T variant="metric" style={{ fontSize: 36 }}>{data.consumed.kcal}</T>
                 <T variant="label">de {data.target.kcal} kcal</T>
               </Row>
+              <ProgressBar value={data.target.kcal > 0 ? data.consumed.kcal / data.target.kcal : 0}
+                color={data.consumed.kcal > data.kcal_ceiling ? colors.warning : colors.accent} />
               <T variant="hint">
-                Massa magra {data.lbm_kg} kg ({LBM_LABEL[data.lbm_source]}) · faixa {data.kcal_floor}–{data.kcal_ceiling} ·
-                treino +{data.session_kcal} kcal {SOURCE_LABEL[data.session_kcal_source]}
+                {data.goal === 'cycle'
+                  ? `Faixa do dia ${data.kcal_floor}–${data.kcal_ceiling} kcal, pelas gramas por kg de peso corporal`
+                  : `Massa magra ${data.lbm_kg} kg (${LBM_LABEL[data.lbm_source]}) · faixa ${data.kcal_floor}–${data.kcal_ceiling} · treino +${data.session_kcal} kcal ${SOURCE_LABEL[data.session_kcal_source]}`}
               </T>
+              <GoalPicker goal={data.goal} onPick={setGoal} />
+              {data.day_kind && <T variant="label" color={colors.accent}>{DAY_KIND[data.day_kind]}</T>}
               <Divider />
               <Meter label="Proteína" value={data.consumed.protein_g} target={data.target.protein_g} unit="g" />
               <Meter label="Carboidrato" value={data.consumed.carbs_g} target={data.target.carbs_g} unit="g" />
@@ -201,14 +218,15 @@ export default function Nutrition() {
             {data.meals.map((m) => {
               const entries = data.entries.filter((e) => e.meal === m.meal);
               return (
-                <Panel key={m.meal}>
+                <Panel key={m.meal} style={{ gap: space.md }}>
                   <Row style={{ justifyContent: 'space-between' }}>
-                    <T style={{ fontSize: 16 }}>{MEAL_LABEL[m.meal]}</T>
-                    {m.carb_curfew && <Badge label="Toque de recolher" color={colors.amber} />}
+                    <T variant="title">{MEAL_LABEL[m.meal]}</T>
+                    <T variant="label">{m.consumed.kcal} / {m.target.kcal} kcal</T>
                   </Row>
+                  {m.carb_curfew && <Badge label="Sem carboidrato" color={colors.warning} />}
                   <T variant="hint">
-                    Meta {m.target.kcal} kcal · proteína {m.target.protein_g} g · carboidrato {m.target.carbs_g} g · gordura{' '}
-                    {m.target.fat_g} g | feito {m.consumed.kcal} kcal · sódio {m.consumed.sodium_mg} mg
+                    Meta: proteína {m.target.protein_g} g · carboidrato {m.target.carbs_g} g · gordura {m.target.fat_g} g ·
+                    sódio feito {m.consumed.sodium_mg} mg
                   </T>
                   {m.carb_curfew && (
                     <T variant="hint">
@@ -220,9 +238,9 @@ export default function Nutrition() {
                       <View style={{ flex: 1 }}>
                         <Row>
                           <T numberOfLines={1} style={{ flexShrink: 1 }}
-                            color={e.dairy === 'contains' ? colors.redText : colors.bone}>{e.name}</T>
+                            color={e.dairy === 'contains' ? colors.danger : colors.text}>{e.name}</T>
                           {/* Written, so the flag is not color alone. */}
-                          {e.dairy === 'contains' && <Badge label="Laticínio" color={colors.redText} />}
+                          {e.dairy === 'contains' && <Badge label="Laticínio" color={colors.danger} />}
                         </Row>
                         <T variant="hint">
                           {e.grams} g · {Math.round(e.kcal)} kcal · sódio {Math.round(e.sodium_mg)} mg
@@ -230,30 +248,31 @@ export default function Nutrition() {
                       </View>
                       <Pressable onPress={() => remove(e.id)} hitSlop={14} accessibilityRole="button"
                         accessibilityLabel={`Remover ${e.name}`}>
-                        <T variant="label">✕</T>
+                        <Icon name="close" size={18} color={colors.textMuted} />
                       </Pressable>
                     </Row>
                   ))}
                   <Row>
-                    <Button tone="ghost" label="+ Alimento" onPress={() => setPicker(m.meal)} style={{ flex: 1 }} />
-                    <Button tone="ghost" label="Escanear" style={{ flex: 1 }}
+                    <Button tone="secondary" icon="plus" label="Alimento" onPress={() => setPicker(m.meal)} style={{ flex: 1 }} />
+                    <Button tone="secondary" icon="camera" label="Escanear" style={{ flex: 1 }}
                       onPress={() => router.push({ pathname: '/scan', params: { meal: m.meal, day } })} />
                   </Row>
                 </Panel>
               );
             })}
 
-            <Panel>
-              <T variant="label">Suplementação</T>
+            <Section title="Suplementação">
+              <Panel style={{ paddingVertical: space.sm }}>
               {data.supplements.map((s) => (
                 <Checkbox key={s.item_id} checked={s.taken} onChange={(v) => toggleSupplement(s.item_id, v)}
                   accessibilityLabel={`${s.label}, ${MEAL_LABEL[s.meal]}`}>
-                  <T style={{ flex: 1, fontSize: 13 }} color={s.taken ? colors.kryptonite : colors.bone}>{s.label}</T>
+                  <T style={{ flex: 1 }} color={s.taken ? colors.textMuted : colors.text}>{s.label}</T>
                   <T variant="label">{MEAL_LABEL[s.meal]}</T>
                 </Checkbox>
               ))}
-              {supplementError && <T color={colors.amber}>{supplementError}</T>}
-            </Panel>
+              {supplementError && <T color={colors.warning}>{supplementError}</T>}
+              </Panel>
+            </Section>
 
             {picker && (
               <FoodPicker
@@ -273,7 +292,51 @@ export default function Nutrition() {
   );
 }
 
+const GOAL: Record<NutritionGoal, { label: string; overline: string; hint: string }> = {
+  cut: { label: 'Secar', overline: 'Six Pack Protocol', hint: 'Dieta Jalali: 12–14 kcal por libra de massa magra.' },
+  maintain: { label: 'Manter', overline: 'Manutenção', hint: 'Estimativa de manutenção: 15–17 kcal por libra de massa magra.' },
+  bulk: {
+    label: 'Ganhar massa',
+    overline: 'Fase de massa (BvS)',
+    hint: 'Superávit leve: 17–19 kcal por libra de massa magra. Se a média de 7 dias subir mais de 0,5 kg por semana, volte para Manter.',
+  },
+  cycle: {
+    label: 'Crescimento limpo',
+    overline: 'Jalali otimizado · ciclagem de carboidrato',
+    hint: 'Proteína 2,0–2,2 g/kg e gordura 0,8–1,0 g/kg todo dia; carboidrato pelo treino (pernas, força máxima e sprint 4–5 g/kg, superior 3–3,5 g/kg, descanso 2–2,5 g/kg), 60% dele no pré e no pós-treino. Sem corte de carboidrato à noite, sem restrição de laticínio e sódio entre 3.000 e 4.000 mg.',
+  },
+};
+
+const DAY_KIND: Record<NonNullable<NutritionDay['day_kind']>, string> = {
+  high: 'Dia de carboidrato alto: pernas, força máxima ou sprint',
+  medium: 'Dia de carboidrato médio: superior',
+  rest: 'Dia de carboidrato baixo: descanso',
+};
+
+/** Cut, maintain or bulk: moves the calorie band; protein stays tied to lean mass. */
+function GoalPicker({ goal, onPick }: { goal: NutritionGoal; onPick: (g: NutritionGoal) => void }) {
+  return (
+    <View style={{ gap: space.sm }}>
+      <Row style={{ gap: space.sm, flexWrap: 'wrap' }}>
+        {(Object.keys(GOAL) as NutritionGoal[]).map((g) => (
+          <Chip key={g} label={GOAL[g].label} selected={goal === g} onPress={() => onPick(g)} />
+        ))}
+      </Row>
+      <T variant="hint">{GOAL[goal].hint}</T>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.void },
-  content: { padding: space.lg, gap: space.md, paddingBottom: space.xxl },
+  root: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
+  dayNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    paddingHorizontal: space.xs,
+  },
+  navBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

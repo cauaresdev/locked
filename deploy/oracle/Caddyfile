@@ -1,0 +1,5 @@
+# HTTPS certificate issued and renewed automatically for the host name in .env.
+{$KNIGHTFALL_HOST} {
+	encode gzip
+	reverse_proxy api:8000
+}

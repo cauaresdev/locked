@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 import httpx
@@ -29,14 +29,14 @@ from .schemas import (
     SyncResult,
     TotalsOut,
 )
-from .services import reject_foreign_ids, session_energy
+from .services import day_profile, reject_foreign_ids, session_energy
 
 router = APIRouter(tags=["nutrition"])
 
 PRODUCT_TTL = timedelta(days=30)
 MISSING_PRODUCT_TTL = timedelta(days=1)
 BARCODE_RE = re.compile(r"^\d{6,14}$")
-SUPPLEMENT_IDS = {item_id for item_id, _, _ in nu.SUPPLEMENTS}
+SUPPLEMENT_IDS = nu.SUPPLEMENT_IDS
 
 
 def _staple_out(st: nu.Staple) -> StapleOut:
@@ -68,21 +68,31 @@ def _entry_out(row: FoodEntry) -> FoodEntryOut:
                         dairy=nu.Dairy(row.dairy), category=nu.Category(row.category) if row.category else None)
 
 
+def day_targets(s: Db, a, day: date, session_kcal: float) -> tuple[nu.Targets, str, bool]:
+    """The day's targets for the athlete's goal, with the carb-cycling day kind and whether it has power work."""
+    lbm = nu.lean_mass(a.bodyweight_kg, a.body_fat_pct, a.height_cm, a.sex)
+    kind, power = day_profile(s, a, day)
+    if a.nutrition_goal == "cycle":
+        return nu.cycle_targets(lbm, a.bodyweight_kg, kind), kind, power  # type: ignore[arg-type]
+    return nu.targets(lbm, session_kcal, a.nutrition_goal), kind, power
+
+
 @router.get("/athletes/{athlete_id}/nutrition/{day}", response_model=NutritionDayOut)
 def nutrition_day(day: Day, a: AthleteDep, s: Db) -> NutritionDayOut:
     session_kcal, source, training = session_energy(s, a, day)
-    lbm = nu.lean_mass(a.bodyweight_kg, a.body_fat_pct, a.height_cm, a.sex)
-    t = nu.targets(lbm, session_kcal)
+    t, kind, power = day_targets(s, a, day, session_kcal)
     rows = list(s.scalars(select(FoodEntry).where(FoodEntry.athlete_id == a.id, FoodEntry.day == day)
                           .order_by(FoodEntry.created_at)))
     audit = nu.audit((_entry(r) for r in rows), t)
     taken = set(s.scalars(select(SupplementIntake.item_id)
                           .where(SupplementIntake.athlete_id == a.id, SupplementIntake.day == day)))
     return NutritionDayOut(
+        goal=a.nutrition_goal,
+        day_kind=kind if a.nutrition_goal == "cycle" else None,
         day=day,
         is_training_day=training,
-        lbm_kg=lbm.kg,
-        lbm_source=lbm.source,
+        lbm_kg=t.lbm.kg,
+        lbm_source=t.lbm.source,
         kcal_floor=t.kcal_floor,
         kcal_ceiling=t.kcal_ceiling,
         session_kcal=t.session_kcal,
@@ -95,15 +105,16 @@ def nutrition_day(day: Day, a: AthleteDep, s: Db) -> NutritionDayOut:
             MealPlanOut(
                 meal=m,
                 target=_macros(t.by_meal[m]),
-                carb_curfew=nu.SPLIT[m]["carbs"] == 0,
+                carb_curfew=t.goal != "cycle" and nu.SPLIT[m]["carbs"] == 0,
                 suggestions=[_staple_out(nu.STAPLES[i]) for i in nu.SUGGESTIONS[m]],
                 consumed=_totals(audit.by_meal[m]),
             )
-            for m in nu.Meal
+            # The plan's meals, plus any other one that has food logged (e.g. after switching plans).
+            for m in nu.Meal if m in t.by_meal or audit.by_meal[m].kcal > 0
         ],
         alerts=[_alert_out(x) for x in audit.alerts],
         supplements=[SupplementOut(item_id=i, label=label, meal=m, taken=i in taken)
-                     for i, label, m in nu.SUPPLEMENTS],
+                     for i, label, m in nu.supplements_for(a.nutrition_goal, power)],
         entries=[_entry_out(r) for r in rows],
     )
 

@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, HTTPException, Query
 from sqlalchemy import delete, select
 
-from .. import armor
+from .. import armor, routine
 from ..catalog import EXERCISES
 from ..db import Athlete, ReadinessEntry, SetLog, athlete_records, insert_new
 from ..domain import Prescription, ReadinessSummary, Session, Tier
@@ -34,6 +34,7 @@ from .schemas import (
 from .services import (
     athlete_out,
     local_today,
+    normalize_equipment,
     plan_context,
     position,
     readiness_for,
@@ -46,12 +47,13 @@ router = APIRouter(tags=["training"])
 
 MAX_SCHEDULE_DAYS = 31
 PROFILE_FIELDS = ("body_fat_pct", "height_cm", "birth_year", "sex", "hr_max_override", "timezone",
-                  "early_bird_enabled", "wake_time")
-NOT_NULL_FIELDS = {"name", "bodyweight_kg", "timezone", "early_bird_enabled", "wake_time"}
+                  "early_bird_enabled", "wake_time", "sleep_target_hours", "nutrition_goal")
+NOT_NULL_FIELDS = {"name", "bodyweight_kg", "timezone", "early_bird_enabled", "wake_time", "sleep_target_hours",
+                   "nutrition_goal"}
 
 
 def _equipment(value: list | None) -> str | None:
-    return None if value is None else ",".join(sorted({str(x) for x in value}))
+    return None if value is None else ",".join(sorted(str(x) for x in normalize_equipment(value)))
 
 
 @router.get("/tiers", response_model=list[TierOut])
@@ -59,6 +61,8 @@ def list_tiers() -> list[TierOut]:
     return [
         TierOut(
             tier=c.tier,
+            name=c.name,
+            description=c.description,
             protocol_id=c.protocol_id,
             cycle_structure=c.cycle_structure,
             cycle_length=c.cycle_length,
@@ -85,14 +89,18 @@ def create_athlete(body: AthleteCreate, user: CurrentUser, s: Db) -> AthleteOut:
         waiver_accepted_at=require_waiver(body.tier, body.accept_brawler_waiver, None),
         timezone="UTC",
         early_bird_enabled=False,
+        sleep_target_hours=routine.DEFAULT_SLEEP_TARGET_H,
+        nutrition_goal="cut",
         wake_time="04:00",
     )
     for f in PROFILE_FIELDS:
         if (v := getattr(body, f)) is not None:
             setattr(a, f, v)
     a.equipment = _equipment(body.equipment)
+    if body.routine_items is not None:
+        a.routine_items = routine.encode_enabled(body.routine_items)
     a.health_consent_at = datetime.now(timezone.utc) if body.accept_health_data else None
-    a.cycle_start = body.cycle_start or local_today(a)
+    a.cycle_start = body.cycle_start or TIERS[body.tier].start_on(local_today(a))
     s.add(a)
     s.commit()
     return athlete_out(a)
@@ -110,10 +118,12 @@ def update_athlete(body: AthleteUpdate, a: AthleteDep, s: Db) -> AthleteOut:
             setattr(a, f, getattr(body, f))
     if "equipment" in body.model_fields_set:
         a.equipment = _equipment(body.equipment)
+    if body.routine_items is not None:
+        a.routine_items = routine.encode_enabled(body.routine_items)
     if body.tier is not None and body.tier.value != a.tier:
         a.waiver_accepted_at = require_waiver(body.tier, body.accept_brawler_waiver, a.waiver_accepted_at)
         a.tier = body.tier.value
-        a.cycle_start = local_today(a)  # a new tier starts a fresh cycle
+        a.cycle_start = TIERS[body.tier].start_on(local_today(a))  # a fresh cycle (weekly ones on a Monday)
     s.commit()
     return athlete_out(a)
 

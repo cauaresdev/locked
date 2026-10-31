@@ -81,7 +81,11 @@ class Athlete(Base):
     wake_time: Mapped[str] = mapped_column(String(5), default="04:00")  # HH:MM local
     waiver_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Comma-separated domain.Implement values the athlete has access to; NULL = a full gym.
-    equipment: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    equipment: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    sleep_target_hours: Mapped[float] = mapped_column(Float, default=8.0)
+    # Comma-separated optional routine items switched on (routine.py); NULL = the defaults.
+    routine_items: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    nutrition_goal: Mapped[str] = mapped_column(String(8), default="cut")  # nutrition.GOAL_KCAL_PER_LB_LBM
     health_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -199,6 +203,29 @@ class EarlyBirdRun(Base):
     woke_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class RoutineCheck(Base):
+    """A routine item ticked by hand (or the water drunk so far) on one day."""
+
+    __tablename__ = "routine_checks"
+
+    athlete_id: Mapped[str] = mapped_column(ForeignKey("athletes.id", ondelete="CASCADE"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    item_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    done: Mapped[bool] = mapped_column(Boolean, default=False)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class BodyMeasurement(Base):
+    """A tape measurement (cm) of one body site on one day."""
+
+    __tablename__ = "body_measurements"
+
+    athlete_id: Mapped[str] = mapped_column(ForeignKey("athletes.id", ondelete="CASCADE"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    site: Mapped[str] = mapped_column(String(16), primary_key=True)
+    cm: Mapped[float] = mapped_column(Float)
+
+
 class WeighIn(Base):
     __tablename__ = "weigh_ins"
 
@@ -208,9 +235,17 @@ class WeighIn(Base):
     source: Mapped[str] = mapped_column(String(16), default="manual")
 
 
+def normalize_url(url: str) -> str:
+    """Hosts hand out `postgres://` or `postgresql://` URLs; SQLAlchemy needs the psycopg (v3) driver named."""
+    for scheme in ("postgres://", "postgresql://"):
+        if url.startswith(scheme):
+            return "postgresql+psycopg://" + url[len(scheme):]
+    return url
+
+
 class Database:
     def __init__(self, url: str | None = None) -> None:
-        self.url = url or os.environ.get("KNIGHTFALL_DATABASE_URL", DEFAULT_URL)
+        self.url = normalize_url(url or os.environ.get("KNIGHTFALL_DATABASE_URL", DEFAULT_URL))
         kwargs = {"connect_args": {"check_same_thread": False}} if self.url.startswith("sqlite") else {}
         # hide_parameters: a failed statement's bound values (weights, HRV, e-mails) stay out of
         # exception messages, so out of logs and Sentry. pre_ping drops connections a proxy closed.

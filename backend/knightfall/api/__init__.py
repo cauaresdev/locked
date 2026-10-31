@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..db import Database
 from ..observability import instrument
 from ..security import Throttle
-from . import routes_auth, routes_nutrition, routes_progress, routes_telemetry, routes_training
+from . import routes_auth, routes_nutrition, routes_progress, routes_routine, routes_telemetry, routes_training
 
 
 def _json_safe(v):
@@ -79,7 +79,8 @@ def create_app(db: Database | None = None, http: httpx.Client | None = None) -> 
             return JSONResponse({"status": "degraded", "database": "down"}, status_code=503)
         return JSONResponse({"status": "ok", "database": "up"})
 
-    for r in (routes_auth, routes_training, routes_nutrition, routes_telemetry, routes_progress):
+    for r in (routes_auth, routes_training, routes_nutrition, routes_telemetry, routes_progress,
+              routes_routine):
         app.include_router(r.router)
     return app
 

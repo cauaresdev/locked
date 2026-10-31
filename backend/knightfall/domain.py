@@ -8,6 +8,7 @@ which timer/metronome/logger to show.
 
 from __future__ import annotations
 
+from datetime import date
 from enum import StrEnum
 from typing import Literal
 
@@ -15,9 +16,19 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Tier(StrEnum):
+    """Training program the athlete follows (the API keeps the historical name "tier")."""
+
     VIGILANTE = "vigilante"  # 45 min, 4 sessions / 7-day cycle
     DARK_KNIGHT = "dark_knight"  # 60 min, 5 sessions / 7-day cycle
-    BRAWLER = "brawler"  # 90+ min, 6 on / 2 off (full BvS spec)
+    BRAWLER = "brawler"  # 3 on / recovery / 3 on / rest (Brawler V2)
+    # Machine-first splits (splits.py)
+    FULL_BODY = "full_body"  # 3 sessions / 7-day cycle
+    UPPER_LOWER = "upper_lower"  # 4 sessions / 7-day cycle
+    PUSH_PULL_LEGS = "push_pull_legs"  # 6 sessions / 7-day cycle
+    BATFLECK = "batfleck"  # 5 sessions / 7-day cycle, BvS hypertrophy
+    NORTON_FB = "norton_fb"  # 4 sessions: Walter Norton Jr.'s functional bodybuilding
+    CONJUGATE = "conjugate"  # 4 sessions: conjugate (Westside-style) max + dynamic effort, advanced
+    GOTHAM_ARMOR = "gotham_armor"  # 5 sessions: V-taper aesthetics + two athletic windows
 
 
 class Pattern(StrEnum):
@@ -37,6 +48,12 @@ class Pattern(StrEnum):
     ARMS = "arms"
     SHOULDERS = "shoulders"
     TRAPS = "traps"
+    KNEE_EXTENSION = "knee_extension"  # leg extension
+    KNEE_FLEXION = "knee_flexion"  # leg curl
+    CALVES = "calves"
+    HIP_ISOLATION = "hip_isolation"  # abduction / adduction / kickback
+    CHEST_FLY = "chest_fly"
+    REAR_DELT = "rear_delt"
     SPRINT = "sprint"
     CARDIO = "cardio"
     MYOFASCIAL = "myofascial"
@@ -44,11 +61,25 @@ class Pattern(StrEnum):
 
 
 class Implement(StrEnum):
+    """What an exercise needs. Machines are listed per station: most gyms have some, not all."""
+
     BARBELL = "barbell"
     DUMBBELL = "dumbbell"
     KETTLEBELL = "kettlebell"
     CABLE = "cable"
-    MACHINE = "machine"
+    MACHINE = "machine"  # legacy profile value: stands for every machine station
+    LEG_PRESS = "leg_press"
+    LEG_EXTENSION = "leg_extension"
+    LEG_CURL = "leg_curl"
+    SMITH = "smith"
+    HACK_SQUAT = "hack_squat"
+    CALF_MACHINE = "calf_machine"
+    HIP_MACHINE = "hip_machine"  # abductor / adductor / glute machine
+    LAT_PULLDOWN = "lat_pulldown"
+    ROW_MACHINE = "row_machine"  # seated row machine or low cable row station
+    CHEST_PRESS = "chest_press"
+    PEC_DECK = "pec_deck"  # also reverse fly
+    SHOULDER_PRESS = "shoulder_press"
     BODYWEIGHT = "bodyweight"
     SLED = "sled"
     TRAP_BAR = "trap_bar"
@@ -56,6 +87,13 @@ class Implement(StrEnum):
     MEDICINE_BALL = "medicine_ball"
     ROLLER = "roller"
     ERGOMETER = "ergometer"
+
+
+MACHINE_STATIONS: frozenset[Implement] = frozenset({
+    Implement.LEG_PRESS, Implement.LEG_EXTENSION, Implement.LEG_CURL, Implement.SMITH, Implement.HACK_SQUAT,
+    Implement.CALF_MACHINE, Implement.HIP_MACHINE, Implement.LAT_PULLDOWN, Implement.ROW_MACHINE,
+    Implement.CHEST_PRESS, Implement.PEC_DECK, Implement.SHOULDER_PRESS,
+})
 
 
 class Modality(StrEnum):
@@ -118,6 +156,20 @@ class Tempo(OutModel):
         return f"{self.eccentric}-{self.bottom_pause}-{self.concentric}-{self.top_pause}"
 
 
+class LastSet(OutModel):
+    """The heaviest set of the last day the exercise was logged."""
+
+    on: date
+    load_kg: float | None
+    reps: int | None
+    rpe: float | None
+
+
+class WarmupSet(OutModel):
+    load_kg: float = Field(ge=0)
+    reps: int = Field(ge=1)
+
+
 class Prescription(OutModel):
     exercise_id: str
     name: str
@@ -144,6 +196,9 @@ class Prescription(OutModel):
     suggested_load_kg: float | None = Field(default=None, ge=0)
     intensity: str | None = None
     cues: list[str] = Field(default_factory=list)
+    last_set: LastSet | None = None
+    best_e1rm_kg: float | None = Field(default=None, ge=0)  # all-time best estimate; external load only
+    warmup_sets: list[WarmupSet] = Field(default_factory=list)  # ramp before the first heavy lift
 
     @model_validator(mode="after")
     def _check_mode_fields(self) -> Prescription:

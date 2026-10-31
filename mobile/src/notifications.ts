@@ -120,3 +120,65 @@ export async function scheduleEarlyBird(wakeTime: string): Promise<boolean> {
 export async function cancelEarlyBird(): Promise<void> {
   await Notifications.cancelScheduledNotificationAsync(ALARM_ID).catch(() => {});
 }
+
+// --- Batfleck routine reminders ---------------------------------------------------
+
+const ROUTINE_CHANNEL = 'routine_v1';
+const ROUTINE_IDS = ['routine-water-1', 'routine-water-2', 'routine-water-3', 'routine-screens', 'routine-bed'];
+
+async function ensureRoutineChannel(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync(ROUTINE_CHANNEL, {
+    name: 'Rotina',
+    importance: Notifications.AndroidImportance.DEFAULT,
+  });
+}
+
+function minutesOf(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+/** Daily reminders: water three times between waking and screens-off, then screens off and bedtime. */
+export function routineReminderTimes(wake: string, screensOff: string, bedtime: string) {
+  const start = minutesOf(wake);
+  let end = minutesOf(screensOff);
+  if (end <= start) end += 24 * 60;
+  const span = end - start;
+  const at = (m: number) => {
+    const t = Math.round(m) % (24 * 60);
+    return { hour: Math.floor(t / 60), minute: t % 60 };
+  };
+  return [
+    { id: ROUTINE_IDS[0], ...at(start + span * 0.25), title: 'Água', body: 'Meio litro agora. A meta do dia está na aba Rotina.' },
+    { id: ROUTINE_IDS[1], ...at(start + span * 0.5), title: 'Água', body: 'Metade do dia: confira quanto falta da meta.' },
+    { id: ROUTINE_IDS[2], ...at(start + span * 0.75), title: 'Água', body: 'Última rodada antes da noite.' },
+    { id: ROUTINE_IDS[3], ...at(end), title: 'Telas desligadas', body: 'Uma hora para dormir. Celular fora do quarto.' },
+    { id: ROUTINE_IDS[4], ...at(minutesOf(bedtime)), title: 'Hora de dormir', body: `Na cama agora para acordar às ${wake}.` },
+  ];
+}
+
+/** Returns false when notification permission is denied. */
+export async function scheduleRoutineReminders(wake: string, screensOff: string, bedtime: string): Promise<boolean> {
+  await ensureRoutineChannel();
+  const perm = await Notifications.requestPermissionsAsync();
+  if (!perm.granted) return false;
+  await cancelRoutineReminders();
+  for (const r of routineReminderTimes(wake, screensOff, bedtime)) {
+    await Notifications.scheduleNotificationAsync({
+      identifier: r.id,
+      content: { title: r.title, body: r.body, data: { route: '/routine' } },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        hour: r.hour,
+        minute: r.minute,
+        channelId: ROUTINE_CHANNEL,
+      },
+    });
+  }
+  return true;
+}
+
+export async function cancelRoutineReminders(): Promise<void> {
+  await Promise.all(ROUTINE_IDS.map((id) => Notifications.cancelScheduledNotificationAsync(id).catch(() => {})));
+}

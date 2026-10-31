@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -11,11 +11,11 @@ from fastapi import HTTPException
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session as DbSession
 
-from .. import readiness
-from ..db import Athlete, ReadinessEntry, SetLog, TelemetrySample, athlete_records
-from ..domain import BlockKind, Implement, ReadinessSummary, Session, Tier
+from .. import early_bird, readiness, routine
+from ..db import Athlete, EarlyBirdRun, ReadinessEntry, SetLog, TelemetrySample, athlete_records
+from ..domain import MACHINE_STATIONS, BlockKind, Implement, Pattern, ReadinessSummary, Session, Tier
 from ..energy import SESSION_MET, STRENGTH_MET, Sample, hr_max, met_kcal, summarize_hr
-from ..generator import CyclePosition, generate_session, locate
+from ..generator import CyclePosition, before_start_session, generate_session, locate
 from ..records import SetRecord
 from ..tiers import TIERS
 from .schemas import AthleteOut
@@ -37,7 +37,15 @@ def athlete_hr_max(a: Athlete) -> int | None:
 def athlete_equipment(a: Athlete) -> frozenset[Implement] | None:
     if a.equipment is None:
         return None
-    return frozenset(Implement(x) for x in a.equipment.split(",") if x)
+    return normalize_equipment(Implement(x) for x in a.equipment.split(",") if x)
+
+
+def normalize_equipment(items: Iterable[Implement]) -> frozenset[Implement]:
+    """Profiles saved before machines were listed per station said just "machine": every station."""
+    gear = set(items)
+    if Implement.MACHINE in gear:
+        gear = (gear - {Implement.MACHINE}) | MACHINE_STATIONS
+    return frozenset(gear)
 
 
 def athlete_out(a: Athlete) -> AthleteOut:
@@ -58,8 +66,11 @@ def athlete_out(a: Athlete) -> AthleteOut:
         early_bird_enabled=a.early_bird_enabled,
         wake_time=a.wake_time,
         waiver_accepted_at=a.waiver_accepted_at,
-        equipment=sorted(athlete_equipment(a) or Implement),
+        equipment=sorted(athlete_equipment(a) or set(Implement) - {Implement.MACHINE}),
         health_consent_at=a.health_consent_at,
+        sleep_target_hours=a.sleep_target_hours,
+        nutrition_goal=a.nutrition_goal,  # type: ignore[arg-type]
+        routine_items=sorted(routine.enabled_items(a.routine_items)),
         cycle_length=cfg.cycle_length,
         cycle_structure=cfg.cycle_structure,
     )
@@ -210,6 +221,8 @@ def session_for(
     s: DbSession, a: Athlete, day: date, with_readiness: bool, records: Sequence[SetRecord] | None = None
 ) -> Session:
     """`records`: the athlete's set history, when the caller already loaded it (or [] to skip loads)."""
+    if day < a.cycle_start and TIERS[Tier(a.tier)].weekly:  # waiting for the program's first Monday
+        return before_start_session(Tier(a.tier), a.cycle_start)
     return generate_session(
         Tier(a.tier),
         position(a, day),
@@ -305,3 +318,42 @@ def reject_foreign_ids(s: DbSession, model, ids: list[str], a: Athlete) -> None:
     """
     if ids and s.scalar(select(model.id).where(model.id.in_(ids), model.athlete_id != a.id).limit(1)):
         raise HTTPException(422, "id already in use; generate a new one")
+
+
+def early_bird_runs(s: DbSession, a: Athlete, first: date, last: date) -> dict[date, datetime]:
+    """Wake check-ins per day (UTC-aware)."""
+    rows = s.scalars(select(EarlyBirdRun).where(EarlyBirdRun.athlete_id == a.id, EarlyBirdRun.day >= first,
+                                                EarlyBirdRun.day <= last))
+    return {r.day: r.woke_at if r.woke_at.tzinfo else r.woke_at.replace(tzinfo=timezone.utc) for r in rows}
+
+
+def early_bird_completed(s: DbSession, a: Athlete, first: date, last: date,
+                         runs: Mapping[date, datetime] | None = None) -> set[date]:
+    """Days in [first, last] whose Early Bird window reached the minutes in zone (all HR windows in one query)."""
+    runs = early_bird_runs(s, a, first, last) if runs is None else runs
+    days = list(runs)
+    windows = [(runs[d], runs[d] + timedelta(minutes=early_bird.WINDOW_MIN, seconds=1)) for d in days]
+    hrmax, now = athlete_hr_max(a), datetime.now(timezone.utc)
+    return {d for d, hr in zip(days, samples_in_windows(s, a, "hr", windows))
+            if early_bird.evaluate(runs[d], hr, hrmax, now).status == "complete"}
+
+
+LOWER_OR_POWER = {Pattern.SQUAT, Pattern.HINGE, Pattern.LUNGE, Pattern.KNEE_EXTENSION, Pattern.KNEE_FLEXION,
+                  Pattern.SPRINT}
+
+
+def day_profile(s: DbSession, a: Athlete, day: date) -> tuple[str, bool]:
+    """(carb-cycling day kind, has jumps or sprints) from the day's planned session.
+
+    Legs, max strength and sprints burn the most glycogen ("high"); upper-body days are "medium";
+    rest and active-recovery days are "rest".
+    """
+    if day < a.cycle_start:
+        return "rest", False
+    session = session_for(s, a, day, with_readiness=False, records=[])
+    if not session.is_training_day:
+        return "rest", False
+    work = [rx for b in session.blocks if b.kind != BlockKind.PREP for rx in b.exercises]
+    power = any(b.name == "Potência" for b in session.blocks) or any(rx.pattern == Pattern.SPRINT for rx in work)
+    heavy = power or any(rx.pattern in LOWER_OR_POWER for rx in work)
+    return ("high" if heavy else "medium"), power

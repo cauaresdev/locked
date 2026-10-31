@@ -8,11 +8,11 @@ import { api } from '../../api/client';
 import type { Athlete, EarlyBird } from '../../api/types';
 import { fresh, useDeviceControls, useLiveHr } from '../../ble/devices';
 import { Meter } from '../../components/Meter';
-import { Badge, Button, Panel, Row, T } from '../../components/ui';
+import { Badge, Button, Panel, Row, ScreenHeader, T, TextLink } from '../../components/ui';
 import { clock, isoDay } from '../../engine/format';
 import { useComms } from '../../hooks/useComms';
-import { cancelEarlyBird, scheduleEarlyBird } from '../../notifications';
-import { storeAthlete, storedAthlete } from '../../storage/db';
+import { cancelEarlyBird, scheduleEarlyBird, scheduleRoutineReminders } from '../../notifications';
+import { routineRemindersEnabled, storeAthlete, storedAthlete, storeRoutine } from '../../storage/db';
 import { flushTelemetry } from '../../sync';
 import { colors, space } from '../../theme';
 
@@ -21,7 +21,7 @@ const STATUS_TEXT: Record<EarlyBird['status'], string> = {
   in_window: 'Janela aberta',
   complete: 'Protocolo cumprido',
   missed: 'Janela perdida',
-  no_hr_max: 'Defina o ano de nascimento ou a frequência cardíaca máxima em Ajustes',
+  no_hr_max: 'Defina o ano de nascimento ou a frequência cardíaca máxima em Perfil',
 };
 
 function shiftTime(hhmm: string, minutes: number): string {
@@ -130,6 +130,12 @@ export default function EarlyBirdScreen() {
       const a = await api.updateAthlete(athlete.id, { early_bird_enabled: enabled, wake_time: wake });
       storeAthlete(a);
       setAthlete(a);
+      if (routineRemindersEnabled() && wake !== athlete.wake_time) {
+        // Bedtime follows the wake time: move the routine's screens-off and bedtime reminders with it.
+        const r = await api.routine(a.id, day);
+        storeRoutine(r);
+        await scheduleRoutineReminders(a.wake_time, r.screens_off, r.bedtime);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao salvar');
     }
@@ -148,72 +154,71 @@ export default function EarlyBirdScreen() {
 
   const minutes = Math.max(eb?.minutes_in_zone ?? 0, localZoneSeconds / 60);
   const required = eb?.required_minutes ?? 20;
-  const bpmColor = bpm == null ? colors.concrete : inZone ? colors.kryptonite : zone && bpm > zone[1] ? colors.amber : colors.bone;
+  const bpmColor = bpm == null ? colors.textMuted : inZone ? colors.success : zone && bpm > zone[1] ? colors.warning : colors.text;
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} tintColor={colors.concrete} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} tintColor={colors.textMuted} />}
       >
-        <Row style={{ justifyContent: 'space-between' }}>
-          <T variant="title">Gotham Early Bird</T>
-          {eb && eb.streak > 0 && <Badge label={`${eb.streak} dias`} color={colors.kryptonite} />}
-        </Row>
+        <TextLink label="‹ Rotina" onPress={() => router.navigate('/routine')} accessibilityLabel="Voltar para a Rotina" />
+        <ScreenHeader overline="Gotham Early Bird" title="Manhã"
+          right={eb && eb.streak > 0 ? <Badge label={`${eb.streak} dias seguidos`} color={colors.success} /> : undefined} />
 
-        <Panel>
+        <Panel style={{ gap: space.md }}>
           <Row style={{ justifyContent: 'space-between' }}>
-            <T variant="label">Alarme diário</T>
+            <T variant="title">Alarme</T>
             <Badge label={athlete.early_bird_enabled ? 'Ativo' : 'Desligado'}
-              color={athlete.early_bird_enabled ? colors.bone : colors.concrete} />
+              color={athlete.early_bird_enabled ? colors.success : colors.textMuted} />
           </Row>
           <Row style={{ justifyContent: 'space-between' }}>
-            <Button tone="ghost" label="−15" accessibilityLabel="Alarme 15 min mais cedo"
+            <Button tone="secondary" label="−15" accessibilityLabel="Alarme 15 min mais cedo"
               onPress={() => saveAlarm(athlete.early_bird_enabled, shiftTime(athlete.wake_time, -15))} />
             <T variant="hero" style={{ fontSize: 48, lineHeight: 56 }}>{athlete.wake_time}</T>
-            <Button tone="ghost" label="+15" accessibilityLabel="Alarme 15 min mais tarde"
+            <Button tone="secondary" label="+15" accessibilityLabel="Alarme 15 min mais tarde"
               onPress={() => saveAlarm(athlete.early_bird_enabled, shiftTime(athlete.wake_time, 15))} />
           </Row>
-          <Button tone={athlete.early_bird_enabled ? 'ghost' : 'primary'}
+          <Button tone={athlete.early_bird_enabled ? 'secondary' : 'primary'}
             label={athlete.early_bird_enabled ? 'Desligar alarme' : 'Ativar alarme'}
             onPress={() => saveAlarm(!athlete.early_bird_enabled, athlete.wake_time)} />
         </Panel>
 
-        {error && <Panel accent={colors.amber}><T color={colors.amber}>{error}</T></Panel>}
+        {error && <Panel accent={colors.warning}><T color={colors.warning}>{error}</T></Panel>}
 
-        <Panel accent={eb?.status === 'complete' ? colors.kryptonite : inWindow ? colors.bone : undefined}>
+        <Panel accent={eb?.status === 'complete' ? colors.success : undefined} style={{ gap: space.md }}>
           <Row style={{ justifyContent: 'space-between' }}>
-            <T variant="label">{eb ? STATUS_TEXT[eb.status] : 'Carregando…'}</T>
+            <T variant="title" style={{ flex: 1 }}>{eb ? STATUS_TEXT[eb.status] : 'Carregando…'}</T>
             {inWindow && windowEnd && <T variant="label">{clock((windowEnd - now) / 1000)} restantes</T>}
           </Row>
 
           <View style={{ alignItems: 'center', paddingVertical: space.md }}>
             <T variant="hero" color={bpmColor}>{bpm ?? '--'}</T>
-            <T variant="label">
-              batimentos/min · zona alvo {zone ? `${zone[0]}–${zone[1]}` : '—'} (≈75% da freq. cardíaca máx.)
+            <T variant="label" style={{ textAlign: 'center' }}>
+              bpm · zona alvo {zone ? `${zone[0]}–${zone[1]}` : '—'} (≈75% da FC máx.)
             </T>
           </View>
 
           {!connected.hr && (
-            <Button tone="alert" label="Parear cinta cardíaca" onPress={() => router.push('/settings')} />
+            <Button tone="secondary" icon="bluetooth" label="Parear cinta cardíaca" onPress={() => router.push('/settings')} />
           )}
 
           <Meter label="Minutos na zona" value={minutes} target={required} unit="min" />
 
           {(eb?.status === 'not_started' || !eb?.woke_at) && eb?.status !== 'no_hr_max' && (
-            <Button label="Acordei · iniciar janela" onPress={checkIn} />
+            <Button icon="sunrise" label="Acordei: iniciar janela" onPress={checkIn} />
           )}
           {eb?.status === 'complete' && (
-            <T color={colors.kryptonite}>Cardio em jejum cumprido. Média {eb.avg_hr ?? '—'} bpm.</T>
+            <T color={colors.success}>Cardio em jejum cumprido. Média {eb.avg_hr ?? '—'} bpm.</T>
           )}
           {eb?.status === 'missed' && (
-            <T color={colors.amber}>
+            <T color={colors.warning}>
               {Math.round(eb.minutes_in_zone)} de {eb.required_minutes} min na zona dentro da janela.
             </T>
           )}
         </Panel>
 
-        <T variant="hint">
+        <T variant="hint" style={{ paddingHorizontal: space.xs }}>
           Protocolo: nos primeiros 30 min após acordar, acumular {required} min com FC entre 70% e 80% da FC máx.,
           em jejum. A FC vem da cinta Bluetooth e é enviada ao servidor, que valida a janela.
         </T>
@@ -223,6 +228,6 @@ export default function EarlyBirdScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.void },
-  content: { padding: space.lg, gap: space.md, paddingBottom: space.xxl },
+  root: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
 });

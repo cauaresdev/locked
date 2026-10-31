@@ -4,7 +4,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -13,14 +13,20 @@ import { SetRunner, type SetResult } from '../../components/SetRunner';
 import { LiveHr } from '../../components/LiveHr';
 import { TimerButton } from '../../components/TimerButton';
 import { fresh, useLiveBike } from '../../ble/devices';
-import { Badge, Button, Panel, Row, T, TextLink } from '../../components/ui';
+import { ExerciseThumb, HowToLink } from '../../components/ExerciseDemo';
+import { Icon } from '../../components/Icon';
+import { Badge, Button, Dots, Panel, Row, Stat, T, TextLink } from '../../components/ui';
+import { isRecord, sessionSummary, setE1rm } from '../../engine/athlete';
 import { clock, repsToLog, rxSummary } from '../../engine/format';
 import {
   applySwaps,
   blockComplete,
   blockLocked,
+  emptyProgress,
   itemKey,
+  loggedSets,
   sessionComplete,
+  startingLoad,
   withLastSetUndone,
   withSetLogged,
   type Progress,
@@ -32,7 +38,7 @@ import { api } from '../../api/client';
 import { openExactAlarmSettings, prepareRestAlerts, scheduleRestAlert } from '../../notifications';
 import { cachedSession, enqueueLogs, loadProgress, saveProgress, storedAthlete, undoLog } from '../../storage/db';
 import { flushAll, loadSession } from '../../sync';
-import { colors, space } from '../../theme';
+import { colors, radius, space } from '../../theme';
 
 const EXACT_ALARM_ASKED_KEY = 'knightfall_exact_alarm_asked'; // once: Ajustes keeps the switch afterwards
 
@@ -59,14 +65,6 @@ function makeLog(day: string, rx: Prescription, setIndex: number, r: Partial<Set
 }
 
 /** A video search for the exercise: the catalog has cues but no demonstrations of its own. */
-function DemoLink({ name }: { name: string }) {
-  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${name} exercise technique`)}`;
-  return (
-    <TextLink label="Como fazer ▸" role="link" accessibilityLabel={`Como fazer: ${name}, vídeo no YouTube`}
-      onPress={() => Linking.openURL(url).catch(() => {})} />
-  );
-}
-
 export default function SessionScreen() {
   useKeepAwake();
   const router = useRouter();
@@ -82,6 +80,7 @@ export default function SessionScreen() {
     null,
   );
   const [swapFor, setSwapFor] = useState<SwapTarget | null>(null);
+  const [recordFlash, setRecordFlash] = useState<string | null>(null);
   // Latest progress, so handlers that await storage never write from a stale snapshot.
   const progressRef = useRef<Progress | null>(null);
   // One write at a time: a double tap on "Registrar série", "+1 rodada" or "Desfazer" must not
@@ -166,7 +165,7 @@ export default function SessionScreen() {
       <SafeAreaView style={styles.root}>
         {loadError ? (
           <View style={{ padding: space.lg, gap: space.lg }}>
-            <T color={colors.amber}>{loadError}</T>
+            <T color={colors.warning}>{loadError}</T>
             <Button label="Voltar" onPress={() => router.back()} />
           </View>
         ) : (
@@ -187,8 +186,22 @@ export default function SessionScreen() {
       const entry = makeLog(day, rx, setIndex, r);
       await enqueueLogs([entry]);
       if (r.load_kg != null) setLastLoad((m) => ({ ...m, [rx.exercise_id]: r.load_kg as number }));
-      update((p) => withSetLogged(p, key, entry.id));
-      Haptics.selectionAsync().catch(() => {});
+      // A record beats the best estimate on file and anything heavier already done today.
+      const e1rm = rx.implement === 'bodyweight' ? null : setE1rm(r.load_kg, r.reps, r.rpe);
+      const today = loggedSets(progressRef.current ?? emptyProgress())
+        .filter((x) => x.exercise === rx.name)
+        .map((x) => setE1rm(x.load_kg, x.reps, x.rpe) ?? 0);
+      const best = rx.best_e1rm_kg == null ? null : Math.max(rx.best_e1rm_kg, ...today);
+      const record = isRecord(e1rm, best);
+      update((p) => withSetLogged(p, key, entry.id,
+        { exercise: rx.name, reps: r.reps, load_kg: r.load_kg, rpe: r.rpe, record }));
+      if (record) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        comms.say('Novo recorde.');
+        setRecordFlash(`${rx.name}: 1RM estimado ${String(e1rm).replace('.', ',')} kg`);
+      } else {
+        Haptics.selectionAsync().catch(() => {});
+      }
       const finished = setIndex + 1 >= rx.sets;
       const setsOf = (i: number) => progressRef.current?.setsDone[itemKey(block.order, i)] ?? 0;
       // Superset: rest 0 on the first exercise sends straight to the second; the rest comes after the
@@ -213,7 +226,8 @@ export default function SessionScreen() {
           : backToFirst ? `Supersérie, série ${nextSet}. Executar.` : 'Próximo exercício.';
         const upNext =
           nextRx && nextSet <= nextRx.sets
-            ? upNextOf(nextRx, nextSet, nextIndex === index ? r.load_kg : (lastLoad[nextRx.exercise_id] ?? nextRx.suggested_load_kg))
+            ? upNextOf(nextRx, nextSet, nextIndex === index ? r.load_kg
+              : startingLoad(block, nextIndex, progressRef.current ?? emptyProgress(), lastLoad))
             : null;
         comms.say(`Descanso. ${rest} segundos.`);
         setRestFor((prev) => ({ id: (prev?.id ?? 0) + 1, seconds: rest, next, upNext }));
@@ -254,17 +268,18 @@ export default function SessionScreen() {
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Sair da sessão"
-          hitSlop={14}>
-          <T variant="label">◂ Sair</T>
+          hitSlop={8} style={styles.iconBtn}>
+          <Icon name="chevron-left" size={22} color={colors.text} />
         </Pressable>
         <Row>
           <Elapsed startedAt={progress.startedAt} finishedAt={progress.finishedAt} />
           <LiveHr />
         </Row>
         <Pressable onPress={comms.toggle} accessibilityRole="switch" accessibilityLabel="Comandos de voz"
-          accessibilityState={{ checked: !comms.muted }} hitSlop={14}>
-          <T variant="label" color={comms.muted ? colors.amber : colors.concrete}>
-            {comms.muted ? 'Voz desligada' : 'Voz ligada'}
+          accessibilityState={{ checked: !comms.muted }} hitSlop={8}
+          style={[styles.voice, comms.muted && { backgroundColor: colors.warningFill }]}>
+          <T variant="label" color={comms.muted ? colors.warning : colors.textMuted}>
+            {comms.muted ? 'Voz off' : 'Voz on'}
           </T>
         </Pressable>
       </View>
@@ -275,40 +290,44 @@ export default function SessionScreen() {
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
       >
-        <T variant="title">{session.day_name}</T>
-        {done && (
-          <Panel accent={colors.kryptonite}>
-            <T variant="title" color={colors.kryptonite}>Sessão concluída</T>
-            <T color={colors.concrete}>
-              {clock(((progress.finishedAt ?? 0) - (progress.startedAt ?? 0)) / 1000)} · séries
-              registradas e enviadas quando houver sinal.
-            </T>
+        <T variant="display" style={{ fontSize: 26, lineHeight: 32 }}>{session.day_name}</T>
+        {done && <SessionSummary progress={progress} />}
+        {recordFlash && !done && (
+          <Panel accent={colors.accent}>
+            <Row style={{ gap: space.sm }}>
+              <Icon name="bolt" size={20} color={colors.accent} />
+              <T variant="title" color={colors.accent} style={{ flex: 1 }}>Novo recorde</T>
+              <TextLink label="Fechar" color={colors.textMuted} onPress={() => setRecordFlash(null)} />
+            </Row>
+            <T>{recordFlash}</T>
           </Panel>
         )}
 
         {view.deload && (
-          <Badge label="Deload · semana de descarga" color={colors.amber} />
+          <Badge label="Deload: semana de descarga" color={colors.warning} />
         )}
         {view.notices.map((n) => (
-          <T key={n} variant="hint" color={colors.amber}>▸ {n}</T>
+          <Panel key={n} accent={colors.warning}><T variant="hint" color={colors.warning}>{n}</T></Panel>
         ))}
 
         {view.blocks.map((block) => {
           const locked = blockLocked(view, block.order, progress);
           const complete = blockComplete(view, block.order, progress);
           return (
-            <View key={block.order} style={{ gap: space.sm }}>
-              <Row style={{ justifyContent: 'space-between' }}>
-                <T variant="label" color={complete ? colors.kryptonite : colors.concrete}>
-                  Bloco {block.order} · {block.duration_minutes} min
-                </T>
-                {locked && <Badge label="Bloqueado" color={colors.amber} />}
-                {complete && <Badge label="Concluído" color={colors.kryptonite} />}
-              </Row>
-              <T style={{ fontSize: 16 }}>{block.name}</T>
+            <View key={block.order} style={{ gap: space.md }}>
+              <View style={{ gap: 2 }}>
+                <Row style={{ justifyContent: 'space-between' }}>
+                  <T variant="label" color={complete ? colors.success : colors.textMuted}>
+                    Bloco {block.order} · {block.duration_minutes} min
+                  </T>
+                  {locked && <Badge label="Bloqueado" color={colors.warning} />}
+                  {complete && <Badge label="Concluído" color={colors.success} />}
+                </Row>
+                <T variant="title" accessibilityRole="header">{block.name}</T>
+              </View>
               {locked ? (
-                <Panel accent={colors.amber}>
-                  <T color={colors.amber}>
+                <Panel accent={colors.warning}>
+                  <T color={colors.warning}>
                     Conclua a preparação articular antes da carga. Sem Bloco 1, sem Bloco {block.order}.
                   </T>
                 </Panel>
@@ -319,7 +338,7 @@ export default function SessionScreen() {
                   const toggle = (value: boolean) =>
                     update((p) => ({ ...p, checked: { ...p.checked, [key]: value } }));
                   return (
-                    <Panel key={key} accent={checked ? colors.kryptonite : undefined}>
+                    <Panel key={key}>
                       <Row style={{ justifyContent: 'space-between' }}>
                         <Pressable style={styles.target}
                           onPress={() => {
@@ -327,15 +346,23 @@ export default function SessionScreen() {
                             toggle(!checked);
                           }}
                           accessibilityRole="checkbox" accessibilityState={{ checked }}>
-                          <T color={checked ? colors.kryptonite : colors.bone}>{rx.name}</T>
-                          <T variant="hint">{rxSummary(rx)}</T>
+                          <Row style={{ gap: space.md }}>
+                            <View style={[styles.check, checked && styles.checkOn]}>
+                              {checked && <Icon name="check" size={14} color={colors.bg} strokeWidth={3} />}
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <T color={checked ? colors.textMuted : colors.text}
+                                style={checked ? { textDecorationLine: 'line-through' } : null}>{rx.name}</T>
+                              <T variant="hint">{rxSummary(rx)}</T>
+                            </View>
+                          </Row>
                         </Pressable>
                         {rx.mode === 'timed' && rx.duration_seconds && !checked && (
                           <TimerButton seconds={rx.duration_seconds} onDone={() => toggle(true)} />
                         )}
                       </Row>
                       {/* A sibling, not inside the checkbox: links never nest in another control. */}
-                      <DemoLink name={rx.name} />
+                      <HowToLink rx={rx} />
                     </Panel>
                   );
                 })
@@ -347,26 +374,31 @@ export default function SessionScreen() {
                   const isActive = active === key;
                   return (
                     <View key={key} style={{ gap: space.xs }}>
-                      <Panel accent={finished ? colors.kryptonite : isActive ? colors.bone : undefined}>
+                      <Panel raised={isActive && !finished}>
                         {/* Only the header toggles the set runner; the links below are its siblings. */}
                         <Pressable onPress={() => setActive(isActive ? null : key)} accessibilityRole="button"
                           accessibilityLabel={`${rx.name}, ${doneSets} de ${rx.sets} séries`}
                           accessibilityState={{ expanded: isActive && !finished }}
                           style={styles.setHeader}>
                           <Row style={{ justifyContent: 'space-between' }}>
-                            <T color={finished ? colors.kryptonite : colors.bone} style={{ flex: 1 }}>{rx.name}</T>
-                            <SetDots done={doneSets} total={rx.sets} />
+                            <ExerciseThumb exerciseId={rx.exercise_id} size={40} />
+                            <T variant="title" color={finished ? colors.textMuted : colors.text} style={{ flex: 1, fontSize: 16 }}>
+                              {rx.name}
+                            </T>
+                            {finished
+                              ? <Icon name="check" size={20} color={colors.success} strokeWidth={2.5} />
+                              : <Dots done={doneSets} total={rx.sets} color={colors.success} />}
                           </Row>
                           <T variant="hint">{rxSummary(rx)}</T>
                         </Pressable>
                         <Row style={{ gap: space.lg }}>
-                          <DemoLink name={rx.name} />
+                          <HowToLink rx={rx} />
                           {doneSets === 0 && athleteId && !rx.set_role && block.kind !== 'prep' && (
-                            <TextLink label="Trocar exercício ▸" accessibilityLabel={`Trocar ${rx.name}`}
+                            <TextLink label="Trocar" accessibilityLabel={`Trocar ${rx.name}`}
                               onPress={() => setSwapFor({ key, block: block.order, index: i })} />
                           )}
                           {doneSets > 0 && (
-                            <TextLink label="Desfazer última série" color={colors.amber}
+                            <TextLink label="Desfazer série" color={colors.warning}
                               accessibilityLabel={`Desfazer última série de ${rx.name}`} onPress={() => undoSet(key)} />
                           )}
                         </Row>
@@ -376,7 +408,7 @@ export default function SessionScreen() {
                           key={`${key}:${doneSets}`}
                           rx={rx}
                           setNumber={doneSets + 1}
-                          defaultLoad={lastLoad[rx.exercise_id] ?? rx.suggested_load_kg}
+                          defaultLoad={startingLoad(block, i, progress, lastLoad)}
                           prep={block.kind === 'prep'}
                           onLog={(r) => logSet(block, i, rx, r)}
                         />
@@ -440,18 +472,26 @@ export default function SessionScreen() {
   );
 }
 
-/** One square per set, filled as sets are logged: readable from arm's length, unlike "2/4". */
-function SetDots({ done, total }: { done: number; total: number }) {
+/** Session clock, ticking on its own so the rest of the screen doesn't re-render every second. */
+function SessionSummary({ progress }: { progress: Progress }) {
+  const sum = sessionSummary(loggedSets(progress));
+  const minutes = ((progress.finishedAt ?? 0) - (progress.startedAt ?? 0)) / 1000;
   return (
-    <Row style={{ gap: 3 }}>
-      {Array.from({ length: total }, (_, i) => (
-        <View key={i} style={[styles.dot, i < done && { backgroundColor: colors.kryptonite, borderColor: colors.kryptonite }]} />
-      ))}
-    </Row>
+    <Panel accent={colors.success} style={{ gap: space.md }}>
+      <T variant="title" color={colors.success}>Sessão concluída</T>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Stat value={clock(minutes)} label="duração" />
+        <Stat value={String(sum.sets)} label="séries" />
+        <Stat value={sum.volumeKg.toLocaleString('pt-BR')} unit="kg" label="volume" />
+      </Row>
+      {sum.records.length > 0 && (
+        <T color={colors.accent}>Recorde: {sum.records.join(', ')}</T>
+      )}
+      <T variant="hint">Séries enviadas quando houver sinal. Agora: proteína, água e sono.</T>
+    </Panel>
   );
 }
 
-/** Session clock, ticking on its own so the rest of the screen doesn't re-render every second. */
 function Elapsed({ startedAt, finishedAt }: { startedAt: number | null; finishedAt: number | null }) {
   const [now, setNow] = useState(() => Date.now());
   const ticking = startedAt != null && finishedAt == null;
@@ -505,14 +545,14 @@ function Amrap({
     else r.onEnd(false);
   }, []);
   return (
-    <Panel>
+    <Panel style={{ gap: space.md }}>
       <Row style={{ justifyContent: 'space-between' }}>
         <T variant="hero" style={{ fontSize: 48, lineHeight: 56 }}>
           {clock(timer.running ? timer.remainingSeconds : block.duration_minutes * 60)}
         </T>
         <View style={{ alignItems: 'flex-end' }}>
           <T variant="label">Rodadas</T>
-          <T variant="metric" color={rounds > 0 ? colors.kryptonite : colors.bone}>{rounds}</T>
+          <T variant="metric" color={rounds > 0 ? colors.success : colors.text}>{rounds}</T>
         </View>
       </Row>
       {block.exercises.map((rx, i) => (
@@ -521,13 +561,13 @@ function Amrap({
             <T>{rx.name}</T>
             <T variant="hint">{rxSummary(rx)}</T>
             <Row style={{ gap: space.lg }}>
-              <DemoLink name={rx.name} />
+              <HowToLink rx={rx} />
               {onSwap && endsAt == null && !done && rx.pattern !== 'sprint' && (
-                <TextLink label="Trocar ▸" accessibilityLabel={`Trocar ${rx.name}`} onPress={() => onSwap(i)} />
+                <TextLink label="Trocar" accessibilityLabel={`Trocar ${rx.name}`} onPress={() => onSwap(i)} />
               )}
             </Row>
           </View>
-          {rx.pattern === 'sprint' && power != null && <Badge label={`${power} W`} color={colors.amber} />}
+          {rx.pattern === 'sprint' && power != null && <Badge label={`${power} W`} color={colors.warning} />}
           {rx.mode === 'timed' && rx.duration_seconds && <TimerButton seconds={rx.duration_seconds} />}
         </Row>
       ))}
@@ -542,7 +582,7 @@ function Amrap({
             setRestRound(rounds + 1);
           }} />
           <Button
-            tone="ghost"
+            tone="secondary"
             label="Encerrar bloco agora"
             onPress={() => {
               timer.stop();
@@ -552,10 +592,11 @@ function Amrap({
           />
         </>
       ) : done || endsAt != null ? (
-        <Button tone="ghost" label="Registrar rodada extra" onPress={onRound} />
+        <Button tone="secondary" label="Registrar rodada extra" onPress={onRound} />
       ) : (
         <Button
-          label="Iniciar AMRAP (máximo de rodadas)"
+          icon="play"
+          label="Iniciar AMRAP"
           onPress={() => {
             play('phase');
             onStart();
@@ -584,11 +625,11 @@ function RoundRest({ seconds, onDone }: { seconds: number; onDone: () => void })
     <Row style={styles.roundRest}>
       <View style={{ flex: 1 }}>
         <T variant="label">Descanso entre rodadas</T>
-        <T variant="metric" color={timer.remainingSeconds <= 5 ? colors.amber : colors.bone}>
+        <T variant="metric" color={timer.remainingSeconds <= 5 ? colors.warning : colors.text}>
           {clock(timer.remainingSeconds)}
         </T>
       </View>
-      <Button tone="ghost" label="Pular" onPress={onDone} />
+      <Button tone="secondary" label="Pular" onPress={onDone} />
     </Row>
   );
 }
@@ -623,18 +664,27 @@ function SwapSheet({
       <SafeAreaView style={styles.root}>
         <ScrollView contentContainerStyle={styles.content}>
           <Row style={{ justifyContent: 'space-between' }}>
-            <T variant="title">Trocar exercício</T>
-            <Pressable onPress={onClose} accessibilityRole="button" hitSlop={12}><T variant="label">Fechar</T></Pressable>
+            <T variant="display" style={{ fontSize: 24, lineHeight: 30 }}>Trocar exercício</T>
+            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Fechar" hitSlop={8}
+              style={styles.iconBtn}>
+              <Icon name="close" size={20} color={colors.text} />
+            </Pressable>
           </Row>
           {current && <T variant="hint">No lugar de: {current.name}</T>}
-          {error && <T color={colors.amber}>{error}</T>}
-          {!options && !error && <ActivityIndicator color={colors.concrete} />}
-          {options?.length === 0 && <T color={colors.concrete}>Nenhuma alternativa com o seu equipamento.</T>}
+          {error && <T color={colors.warning}>{error}</T>}
+          {!options && !error && <ActivityIndicator color={colors.textMuted} />}
+          {options?.length === 0 && <T color={colors.textMuted}>Nenhuma alternativa com o seu equipamento.</T>}
           {options?.map((rx) => (
             <Pressable key={rx.exercise_id} onPress={() => onPick(rx)} accessibilityRole="button">
               <Panel>
-                <T>{rx.name}</T>
-                <T variant="hint">{rxSummary(rx)}</T>
+                <Row>
+                  <ExerciseThumb exerciseId={rx.exercise_id} size={48} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <T>{rx.name}</T>
+                    <T variant="hint">{rxSummary(rx)}</T>
+                  </View>
+                  <Icon name="chevron-right" size={18} color={colors.textFaint} />
+                </Row>
               </Panel>
             </Pressable>
           ))}
@@ -701,19 +751,19 @@ function Rest({
 
   const left = timer.remainingSeconds;
   const ending = left <= 5;
-  const timeColor = ending ? colors.amber : colors.bone;
+  const timeColor = ending ? colors.warning : colors.text;
 
   if (minimized) {
     return (
       <View style={[styles.restBar, { paddingBottom: space.md + insets.bottom }]}>
         <Pressable onPress={() => setMinimized(false)} accessibilityRole="button" hitSlop={8}
           accessibilityLabel={`Descanso, ${left} segundos. Abrir em tela cheia`} style={{ flex: 1 }}>
-          <T variant="label">Descanso ▴</T>
+          <T variant="label">Descanso · toque para abrir</T>
           <T variant="metric" color={timeColor}>{clock(left)}</T>
         </Pressable>
-        <Button tone="ghost" label={`+${clock(REST_STEP)}`} onPress={() => adjust(REST_STEP)}
+        <Button tone="secondary" label={`+${clock(REST_STEP)}`} onPress={() => adjust(REST_STEP)}
           accessibilityLabel={`Mais ${REST_STEP} segundos`} />
-        <Button tone="ghost" label="Pular" onPress={onSkip} />
+        <Button tone="secondary" label="Pular" onPress={onSkip} />
       </View>
     );
   }
@@ -722,9 +772,9 @@ function Rest({
     <View style={[styles.restFull, { paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.lg }]}
       accessibilityViewIsModal>
       <Row style={{ justifyContent: 'space-between', alignSelf: 'stretch' }}>
-        <T variant="label">Descanso</T>
+        <T variant="title">Descanso</T>
         <LiveHr />
-        <TextLink label="Minimizar ▾" onPress={() => setMinimized(true)} accessibilityLabel="Minimizar descanso" />
+        <TextLink label="Minimizar" onPress={() => setMinimized(true)} accessibilityLabel="Minimizar descanso" />
       </Row>
 
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: space.xl, alignSelf: 'stretch' }}>
@@ -733,9 +783,9 @@ function Rest({
           <T variant="label">de {clock(total)}</T>
         </RestRing>
         <Row style={{ alignSelf: 'stretch' }}>
-          <Button tone="ghost" label={`−${clock(REST_STEP)}`} onPress={() => adjust(-REST_STEP)} disabled={left <= REST_STEP}
+          <Button tone="secondary" label={`−${clock(REST_STEP)}`} onPress={() => adjust(-REST_STEP)} disabled={left <= REST_STEP}
             accessibilityLabel={`Menos ${REST_STEP} segundos`} style={{ flex: 1 }} />
-          <Button tone="ghost" label={`+${clock(REST_STEP)}`} onPress={() => adjust(REST_STEP)}
+          <Button tone="secondary" label={`+${clock(REST_STEP)}`} onPress={() => adjust(REST_STEP)}
             accessibilityLabel={`Mais ${REST_STEP} segundos`} style={{ flex: 1 }} />
         </Row>
       </View>
@@ -743,7 +793,7 @@ function Rest({
       {upNext && (
         <Panel style={{ alignSelf: 'stretch' }}>
           <T variant="label">A seguir · {upNext.set}</T>
-          <T style={{ fontSize: 18 }}>{upNext.name}</T>
+          <T variant="title">{upNext.name}</T>
           {upNext.detail !== '' && <T variant="hint">{upNext.detail}</T>}
         </Panel>
       )}
@@ -752,7 +802,7 @@ function Rest({
   );
 }
 
-/** Square-capped ring that empties as the rest runs down. */
+/** Ring that empties as the rest runs down. */
 function RestRing({ progress, color, label, children }: {
   progress: number;
   color: string;
@@ -767,9 +817,9 @@ function RestRing({ progress, color, label, children }: {
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}
       accessible accessibilityRole="timer" accessibilityLabel={label}>
       <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.seam} strokeWidth={stroke} fill="none" />
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.surfaceHigh} strokeWidth={stroke} fill="none" />
         <Circle cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none"
-          strokeDasharray={`${c} ${c}`} strokeDashoffset={c * (1 - Math.min(1, Math.max(0, progress)))}
+          strokeLinecap="round" strokeDasharray={`${c} ${c}`} strokeDashoffset={c * (1 - Math.min(1, Math.max(0, progress)))}
           rotation={-90} origin={`${size / 2}, ${size / 2}`} />
       </Svg>
       {children}
@@ -778,21 +828,31 @@ function RestRing({ progress, color, label, children }: {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.void },
+  root: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-    borderBottomColor: colors.seam,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: space.sm,
   },
+  iconBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surfaceHigh,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  voice: {
+    minHeight: 44, justifyContent: 'center', paddingHorizontal: space.md, borderRadius: radius.pill,
+    backgroundColor: colors.surfaceHigh,
+  },
+  check: {
+    width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: colors.textMuted,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkOn: { backgroundColor: colors.success, borderColor: colors.success },
   content: { padding: space.lg, gap: space.xl, paddingBottom: 160 },
   target: { flex: 1, minHeight: 44, justifyContent: 'center' },
   setHeader: { minHeight: 44, justifyContent: 'center', gap: space.sm },
-  roundRest: { borderWidth: 1, borderColor: colors.amber, padding: space.md },
-  dot: { width: 10, height: 10, borderWidth: 1, borderColor: colors.concrete },
+  roundRest: { backgroundColor: colors.warningFill, borderRadius: radius.md, padding: space.md },
   restBar: {
     position: 'absolute',
     left: 0,
@@ -801,15 +861,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    backgroundColor: colors.gunmetal,
-    borderTopColor: colors.amber,
-    borderTopWidth: 2,
+    backgroundColor: colors.surfaceHigh,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     paddingHorizontal: space.lg,
     paddingTop: space.md,
   },
   restFull: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: colors.void,
+    backgroundColor: colors.bg,
     paddingHorizontal: space.lg,
     alignItems: 'center',
     gap: space.lg,

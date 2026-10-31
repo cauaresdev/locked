@@ -4,14 +4,21 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Body, HTTPException
-from sqlalchemy import select
 
 from .. import early_bird
 from ..db import EarlyBirdRun, TelemetrySample, insert_new
 from ..energy import summarize_hr
 from .deps import AthleteDep, Db
 from .schemas import Day, EarlyBirdOut, SampleIn, SyncResult, TelemetrySummaryOut, WakeIn
-from .services import age, athlete_hr_max, hr_kcal, local_day_bounds, local_today, samples, samples_in_windows
+from .services import (
+    age,
+    athlete_hr_max,
+    early_bird_completed,
+    hr_kcal,
+    local_day_bounds,
+    local_today,
+    samples,
+)
 
 router = APIRouter(tags=["telemetry"])
 
@@ -65,17 +72,8 @@ def _early_bird(s: Db, a, day: date) -> EarlyBirdOut:
     hrmax = athlete_hr_max(a)
     result = early_bird.evaluate(woke, hr, hrmax, now)
 
-    # Streak over the last 60 days of check-ins (all their HR windows in one query).
-    runs = list(s.scalars(select(EarlyBirdRun).where(EarlyBirdRun.athlete_id == a.id,
-                                                       EarlyBirdRun.day >= day - timedelta(days=60),
-                                                       EarlyBirdRun.day <= day)))
-    wakes = [r.woke_at if r.woke_at.tzinfo else r.woke_at.replace(tzinfo=timezone.utc) for r in runs]
-    windows = [(w, w + timedelta(minutes=early_bird.WINDOW_MIN, seconds=1)) for w in wakes]
-    completed = {
-        r.day
-        for r, w, r_hr in zip(runs, wakes, samples_in_windows(s, a, "hr", windows))
-        if early_bird.evaluate(w, r_hr, hrmax, now).status == "complete"
-    }
+    # Streak over the last 60 days of check-ins.
+    completed = early_bird_completed(s, a, day - timedelta(days=60), day)
 
     return EarlyBirdOut(
         day=day,

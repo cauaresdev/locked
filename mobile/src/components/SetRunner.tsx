@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Prescription } from '../api/types';
+import { loadsPlates, platesPerSide } from '../engine/athlete';
 import { clock, parseDecimal as num, repsToLog, workSeconds } from '../engine/format';
 import { PHASE_LABEL } from '../engine/tempo';
 import { useCountdown } from '../hooks/useCountdown';
 import { useCues } from '../hooks/useCues';
 import { useMetronome } from '../hooks/useMetronome';
-import { colors, fonts, space } from '../theme';
+import { colors, fonts, radius, space } from '../theme';
 import { Button, Field, Panel, Row, T } from './ui';
 
 export interface SetResult {
@@ -52,14 +53,20 @@ export function SetRunner({
   const range = rx.reps_max ? ` (${repsToLog(rx)}–${rx.reps_max})` : '';
 
   return (
-    <Panel style={{ backgroundColor: colors.void }}>
-      <T variant="label">
+    <Panel style={{ gap: space.md }}>
+      <T variant="title" style={{ fontSize: 16 }}>
         Série {setNumber}/{rx.sets}{rx.set_role === 'top' ? ' · top set' : rx.set_role === 'backoff' ? ' · back-off' : ''}
         {distance ? ` · ${rx.distance_m} m` : ''}
       </T>
       {rx.tempo && rx.mode === 'reps' && <Metronome rx={rx} />}
       {timed && <WorkTimer seconds={workSeconds(rx)} />}
-      {rx.cues.length > 0 && <T variant="hint">▸ {rx.cues.join(' · ')}</T>}
+      {rx.cues.length > 0 && <T variant="hint">{rx.cues.join(' · ')}</T>}
+      {!prep && <History rx={rx} />}
+      {setNumber === 1 && rx.warmup_sets.length > 0 && (
+        <T variant="label">
+          Aquecimento antes: {rx.warmup_sets.map((w) => `${fmt(w.load_kg)} kg × ${w.reps}`).join(' · ')}
+        </T>
+      )}
       <Row style={{ alignItems: 'flex-end' }}>
         {!timed && !distance && (
           <Field label={(rx.reps_per_side ? 'Repetições por lado' : 'Repetições') + range} value={reps}
@@ -70,6 +77,7 @@ export function SetRunner({
             keyboardType="decimal-pad" placeholder="—" />
         )}
       </Row>
+      {showLoad && loadsPlates(rx.implement) && <Plates kg={num(load)} implement={rx.implement} />}
       {!prep && <RpePicker value={rpe} target={rx.target_rpe} onChange={setRpe} />}
       <Button
         label={needsRpe && rpe == null ? 'Escolha o esforço' : 'Registrar série'}
@@ -88,6 +96,39 @@ export function SetRunner({
   );
 }
 
+/** Last time this lift was done, and the best estimate to beat. */
+function History({ rx }: { rx: Prescription }) {
+  const last = rx.last_set;
+  if (!last && rx.best_e1rm_kg == null) return null;
+  const when = last ? new Date(`${last.on}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '';
+  const what = last
+    ? [last.load_kg ? `${fmt(last.load_kg)} kg` : null, last.reps ? `× ${last.reps}` : null,
+      last.rpe ? `esforço ${fmt(last.rpe)}` : null].filter(Boolean).join(' ')
+    : '';
+  return (
+    <Row style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      {last && <T variant="label">Última ({when}): {what || 'registrada'}</T>}
+      {rx.best_e1rm_kg != null && (
+        <T variant="label" color={colors.accent}>Recorde: 1RM est. {fmt(rx.best_e1rm_kg)} kg</T>
+      )}
+    </Row>
+  );
+}
+
+/** Plates to load on each side for the typed weight. */
+function Plates({ kg, implement }: { kg: number | null; implement: Prescription['implement'] }) {
+  if (kg == null || kg <= 0) return null;
+  const split = platesPerSide(kg, implement);
+  if (!split) return <T variant="label">Abaixo do peso da barra (20 kg).</T>;
+  const plates = split.plates.length ? split.plates.map(fmt).join(' + ') : 'nenhuma';
+  const prefix = implement === 'barbell' ? 'Por lado, além da barra de 20 kg' : 'Anilhas por lado';
+  return (
+    <T variant="label">
+      {prefix}: {plates}{split.leftover > 0 ? ` (sobra ${fmt(split.leftover)} kg)` : ''}
+    </T>
+  );
+}
+
 /** Rate of perceived exertion, anchored on reps in reserve so the scale means the same every set. */
 function RpePicker({ value, target, onChange }: { value: number | null; target: number | null; onChange: (v: number) => void }) {
   const key = (v: number, caption?: string, half?: boolean) => {
@@ -96,9 +137,9 @@ function RpePicker({ value, target, onChange }: { value: number | null; target: 
       <Pressable key={v} onPress={() => onChange(v)} accessibilityRole="radio" accessibilityState={{ checked: on }}
         accessibilityLabel={`Esforço ${fmt(v)}${caption ? `, ${caption}` : ''}${v === target ? ', alvo' : ''}`}
         style={[styles.rpeKey, half && styles.rpeHalf, on && styles.chipOn, v === target && !on && styles.chipTarget]}>
-        <Text style={[styles.chipText, half && { fontSize: 13 }, on && { color: colors.void }]}>{fmt(v)}</Text>
+        <Text style={[styles.chipText, half && { fontSize: 13 }, on && { color: colors.onAccent }]}>{fmt(v)}</Text>
         {caption && (
-          <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.rpeCaption, on && { color: colors.void }]}>{caption}</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.rpeCaption, on && { color: colors.onAccent }]}>{caption}</Text>
         )}
       </Pressable>
     );
@@ -122,17 +163,17 @@ function Metronome({ rx }: { rx: Prescription }) {
   return (
     <View style={styles.center}>
       {m.running && state.leadIn > 0 ? (
-        <T variant="hero" color={colors.amber}>{state.leadIn}</T>
+        <T variant="hero" color={colors.warning}>{state.leadIn}</T>
       ) : m.running && state.phase ? (
         <>
           <T variant="label">Repetição {state.rep}/{reps}{rx.reps_per_side ? ' (por lado)' : ''}</T>
           <T variant="title">{PHASE_LABEL[state.phase]}</T>
-          <T variant="hero">{state.secondInPhase}<T variant="metric" color={colors.concrete}>/{state.phaseSeconds}</T></T>
+          <T variant="hero">{state.secondInPhase}<T variant="metric" color={colors.textMuted}>/{state.phaseSeconds}</T></T>
         </>
       ) : (
         <T variant="label">Metrônomo · {m.totalSeconds} s sob tensão</T>
       )}
-      <Button tone="ghost" label={m.running ? 'Parar' : 'Metrônomo'} onPress={m.running ? m.stop : m.start}
+      <Button tone="secondary" label={m.running ? 'Parar' : 'Metrônomo'} onPress={m.running ? m.stop : m.start}
         style={{ alignSelf: 'stretch' }} />
     </View>
   );
@@ -143,11 +184,11 @@ function WorkTimer({ seconds }: { seconds: number }) {
   const t = useCountdown(seconds, () => play('done'));
   return (
     <View style={styles.center}>
-      <T variant="hero" color={t.running ? colors.bone : colors.concrete}>
+      <T variant="hero" color={t.running ? colors.text : colors.textMuted}>
         {clock(t.running ? t.remainingSeconds : seconds)}
       </T>
       <Button
-        tone="ghost"
+        tone="secondary"
         label={t.running ? 'Parar' : 'Iniciar'}
         onPress={() => {
           if (t.running) t.stop();
@@ -165,11 +206,11 @@ function WorkTimer({ seconds }: { seconds: number }) {
 const styles = StyleSheet.create({
   center: { alignItems: 'center', gap: space.sm, paddingVertical: space.sm },
   rpeRow: { flexDirection: 'row', gap: space.xs },
-  rpeKey: { flex: 1, borderWidth: 1, borderColor: colors.seam, minHeight: 52, alignItems: 'center',
-    justifyContent: 'center', gap: 2 },
+  rpeKey: { flex: 1, borderRadius: radius.md, borderWidth: 1.5, borderColor: 'transparent',
+    backgroundColor: colors.surfaceHigh, minHeight: 52, alignItems: 'center', justifyContent: 'center', gap: 2 },
   rpeHalf: { minHeight: 44 },
-  rpeCaption: { fontFamily: fonts.mono, fontSize: 10, color: colors.concrete },
-  chipOn: { backgroundColor: colors.bone, borderColor: colors.bone },
-  chipTarget: { borderColor: colors.concrete, borderStyle: 'dashed' },
-  chipText: { fontFamily: fonts.monoBold, fontSize: 15, color: colors.bone, fontVariant: ['tabular-nums'] },
+  rpeCaption: { fontSize: 10, color: colors.textMuted },
+  chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  chipTarget: { borderColor: colors.textMuted, borderStyle: 'dashed' },
+  chipText: { fontFamily: fonts.monoBold, fontSize: 15, color: colors.text, fontVariant: ['tabular-nums'] },
 });
