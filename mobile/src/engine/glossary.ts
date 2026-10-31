@@ -121,7 +121,7 @@ export const GLOSSARY: Term[] = [
   {
     term: 'LGPD',
     meaning: 'Lei Geral de Proteção de Dados',
-    detail: 'A lei brasileira que garante o acesso, a portabilidade e a exclusão dos seus dados. Exportar e excluir ficam em Ajustes › Conta.',
+    detail: 'A lei brasileira que garante o acesso, a portabilidade e a exclusão dos seus dados. Exportar e excluir ficam em Perfil › Conta.',
   },
 ];
 

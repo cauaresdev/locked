@@ -8,16 +8,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ApiError, api } from '../api/client';
 import type { Alert, Meal, Product } from '../api/types';
+import { Icon } from '../components/Icon';
 import { Button, Chip, Field, Panel, Row, T } from '../components/ui';
 import { isoDay, parseDecimal } from '../engine/format';
 import { MEAL_LABEL, entryFromProduct, portionAlerts } from '../engine/nutrition';
 import { cachedNutrition, enqueueFood, storedAthlete } from '../storage/db';
 import { flushNutrition } from '../sync';
-import { colors, space } from '../theme';
+import { colors, radius, space } from '../theme';
 
-const MEALS: Meal[] = ['breakfast', 'post_workout', 'snack', 'dinner'];
-const LEVEL_COLOR = { red: colors.red, amber: colors.amber, info: colors.concrete } as const;
-const LEVEL_TEXT = { red: colors.redText, amber: colors.amber, info: colors.concrete } as const;
+const JALALI_MEALS: Meal[] = ['breakfast', 'post_workout', 'snack', 'dinner'];
+const LEVEL_COLOR = { red: colors.danger, amber: colors.warning, info: colors.textMuted } as const;
+const LEVEL_TEXT = { red: colors.danger, amber: colors.warning, info: colors.textMuted } as const;
 
 export default function Scan() {
   const router = useRouter();
@@ -30,13 +31,19 @@ export default function Scan() {
   const [error, setError] = useState<string | null>(null);
   const [grams, setGrams] = useState('100');
   const [meal, setMeal] = useState<Meal>(params.meal ?? 'breakfast');
-  const [mealSodium, setMealSodium] = useState<Record<Meal, number>>({ breakfast: 0, post_workout: 0, snack: 0, dinner: 0 });
+  const [mealSodium, setMealSodium] = useState<Partial<Record<Meal, number>>>({});
+  // The day's plan decides the meals and the rules (carb cycling has a pre-workout meal and no dairy cap).
+  const [meals, setMeals] = useState<Meal[]>(JALALI_MEALS);
+  const [jalali, setJalali] = useState(true);
   const [torch, setTorch] = useState(false);
 
   useEffect(() => {
     cachedNutrition(day)
       .then((d) => {
-        if (d) setMealSodium(Object.fromEntries(d.meals.map((m) => [m.meal, m.consumed.sodium_mg])) as Record<Meal, number>);
+        if (!d) return;
+        setMealSodium(Object.fromEntries(d.meals.map((m) => [m.meal, m.consumed.sodium_mg])));
+        setMeals(d.meals.map((m) => m.meal));
+        setJalali(d.goal !== 'cycle');
       })
       .catch(() => {}); // no cached day: the portion alerts count from zero
   }, [day]);
@@ -89,7 +96,7 @@ export default function Scan() {
   // Product-level alerts from the server, plus this portion against what the meal already has.
   const alerts: Alert[] = product?.found
     ? [
-        ...portionAlerts(product, g, mealSodium[meal]),
+        ...portionAlerts(product, g, mealSodium[meal] ?? 0, jalali),
         ...product.alerts.filter((a) => !a.code.startsWith('dairy') && a.code !== 'whey_isolate' && a.code !== 'sodium_portion'),
       ]
     : [];
@@ -100,9 +107,9 @@ export default function Scan() {
     return (
       <SafeAreaView style={[styles.root, { padding: space.lg, gap: space.lg }]}>
         <T variant="title">Câmera</T>
-        <T color={colors.concrete}>A câmera lê o código de barras para checar sódio e laticínios.</T>
+        <T color={colors.textMuted}>A câmera lê o código de barras para checar sódio e laticínios.</T>
         <Button label="Permitir câmera" onPress={requestPermission} />
-        <Button tone="ghost" label="Voltar" onPress={() => router.back()} />
+        <Button tone="secondary" label="Voltar" onPress={() => router.back()} />
       </SafeAreaView>
     );
   }
@@ -110,16 +117,18 @@ export default function Scan() {
   return (
     <SafeAreaView style={styles.root}>
       <Row style={{ justifyContent: 'space-between', padding: space.lg }}>
-        <T variant="title" style={{ fontSize: 18 }}>Scanner</T>
-        <Row style={{ gap: space.xl }}>
+        <T variant="display" style={{ fontSize: 24, lineHeight: 30 }}>Scanner</T>
+        <Row style={{ gap: space.sm }}>
           {!code && (
-            <Pressable onPress={() => setTorch((t) => !t)} hitSlop={14} accessibilityRole="switch"
-              accessibilityLabel="Lanterna" accessibilityState={{ checked: torch }}>
-              <T variant="label" color={torch ? colors.amber : colors.concrete}>{torch ? 'Lanterna ligada' : 'Lanterna'}</T>
+            <Pressable onPress={() => setTorch((t) => !t)} hitSlop={8} accessibilityRole="switch"
+              accessibilityLabel="Lanterna" accessibilityState={{ checked: torch }}
+              style={[styles.iconBtn, torch && { backgroundColor: colors.accent }]}>
+              <Icon name="bolt" size={20} color={torch ? colors.onAccent : colors.text} />
             </Pressable>
           )}
-          <Pressable onPress={() => router.back()} hitSlop={14} accessibilityRole="button">
-            <T variant="label">Fechar</T>
+          <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Fechar"
+            style={styles.iconBtn}>
+            <Icon name="close" size={20} color={colors.text} />
           </Pressable>
         </Row>
       </Row>
@@ -134,7 +143,7 @@ export default function Scan() {
             onBarcodeScanned={onScanned}
           />
           <View style={styles.reticle} pointerEvents="none" />
-          <T variant="label" style={styles.hint}>Aponte para o código de barras</T>
+          <T variant="label" color={colors.text} style={styles.hint}>Aponte para o código de barras</T>
         </View>
       )}
 
@@ -142,20 +151,20 @@ export default function Scan() {
         <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md }} keyboardShouldPersistTaps="handled"
           automaticallyAdjustKeyboardInsets>
           <T variant="label">EAN {code}</T>
-          {!product && !error && <T color={colors.concrete}>Consultando base de alimentos…</T>}
-          {error && <Panel accent={colors.amber}><T color={colors.amber}>{error}</T></Panel>}
+          {!product && !error && <T color={colors.textMuted}>Consultando base de alimentos…</T>}
+          {error && <Panel accent={colors.warning}><T color={colors.warning}>{error}</T></Panel>}
           {product && !product.found && (
-            <Panel accent={colors.amber}><T color={colors.amber}>Produto não encontrado. Use a entrada manual.</T></Panel>
+            <Panel accent={colors.warning}><T color={colors.warning}>Produto não encontrado. Use a entrada manual.</T></Panel>
           )}
           {product?.found && (
             <>
               {red && (
                 <View style={styles.redBanner}>
-                  <T variant="title" color={colors.void}>Alerta vermelho</T>
+                  <T variant="title" color={colors.bg}>Alerta vermelho</T>
                 </View>
               )}
-              <Panel accent={red ? colors.red : colors.kryptonite}>
-                <T style={{ fontSize: 16 }}>{product.name}</T>
+              <Panel>
+                <T variant="title">{product.name}</T>
                 {product.brand && <T variant="label">{product.brand}</T>}
                 <T variant="hint">
                   /100 g · {product.kcal_100g ?? '?'} kcal · proteína {product.protein_100g ?? '?'} g · carboidrato{' '}
@@ -168,7 +177,7 @@ export default function Scan() {
                 </Panel>
               ))}
               <Row style={{ flexWrap: 'wrap', gap: space.xs }}>
-                {MEALS.map((m) => (
+                {meals.map((m) => (
                   <Chip key={m} label={MEAL_LABEL[m]} selected={m === meal} onPress={() => setMeal(m)} />
                 ))}
               </Row>
@@ -179,7 +188,7 @@ export default function Scan() {
               </Row>
             </>
           )}
-          <Button tone="ghost" label="Escanear outro" onPress={reset} />
+          <Button tone="secondary" label="Escanear outro" onPress={reset} />
         </ScrollView>
       )}
     </SafeAreaView>
@@ -187,12 +196,19 @@ export default function Scan() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.void },
-  cameraWrap: { flex: 1, margin: space.lg, overflow: 'hidden', borderWidth: 1, borderColor: colors.seam },
+  root: { flex: 1, backgroundColor: colors.bg },
+  cameraWrap: { flex: 1, margin: space.lg, marginTop: 0, overflow: 'hidden', borderRadius: radius.lg },
   reticle: {
     position: 'absolute', left: '10%', right: '10%', top: '38%', height: '24%',
-    borderWidth: 2, borderColor: colors.amber,
+    borderWidth: 2, borderColor: colors.accent, borderRadius: radius.md,
   },
-  hint: { position: 'absolute', bottom: space.lg, alignSelf: 'center' },
-  redBanner: { backgroundColor: colors.red, padding: space.md, alignItems: 'center' },
+  hint: {
+    position: 'absolute', bottom: space.lg, alignSelf: 'center', backgroundColor: 'rgba(11,11,13,0.75)',
+    paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.pill, overflow: 'hidden',
+  },
+  redBanner: { backgroundColor: colors.danger, padding: space.md, alignItems: 'center', borderRadius: radius.md },
+  iconBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surfaceHigh,
+    alignItems: 'center', justifyContent: 'center',
+  },
 });

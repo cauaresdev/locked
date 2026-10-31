@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, type TextInput } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View, type TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../api/client';
@@ -54,9 +54,10 @@ export default function Login() {
     <SafeAreaView style={styles.root}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <T variant="label">Project Knightfall</T>
-          <T variant="hero" style={{ fontSize: 44, lineHeight: 52 }}>KNIGHT{'\n'}FALL</T>
-          <T variant="title">{mode === 'login' ? 'Acesso' : 'Novo operador'}</T>
+          <View style={{ gap: space.xs, marginBottom: space.lg }}>
+            <T variant="display" style={{ fontSize: 40, lineHeight: 46 }}>Knightfall</T>
+            <T variant="label">{mode === 'login' ? 'Entre na sua conta' : 'Crie sua conta'}</T>
+          </View>
           <Field label="E-mail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"
             autoComplete="email" textContentType="emailAddress" autoCorrect={false} returnKeyType="next"
             submitBehavior="submit" onSubmitEditing={() => passwordRef.current?.focus()} />
@@ -64,12 +65,12 @@ export default function Login() {
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             textContentType={mode === 'login' ? 'password' : 'newPassword'} autoCorrect={false} returnKeyType="go"
             onSubmitEditing={submit} />
-          {error && <T color={colors.amber}>{error}</T>}
+          {error && <T color={colors.warning}>{error}</T>}
           <Button label={busy ? 'Conectando…' : mode === 'login' ? 'Entrar' : 'Criar conta'} onPress={submit}
             disabled={!valid || busy} />
           <Pressable onPress={() => setMode(mode === 'login' ? 'register' : 'login')} accessibilityRole="button"
             style={{ minHeight: 44, justifyContent: 'center' }}>
-            <T variant="label" style={{ textAlign: 'center', paddingVertical: space.md }}>
+            <T variant="label" color={colors.accent} style={{ textAlign: 'center', paddingVertical: space.md, fontWeight: '600' }}>
               {mode === 'login' ? 'Criar conta' : 'Já tenho conta'}
             </T>
           </Pressable>
@@ -80,6 +81,6 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.void },
-  content: { padding: space.lg, gap: space.lg, paddingTop: space.xxl * 2 },
+  root: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: space.xl, gap: space.lg, paddingTop: space.xxl * 3 },
 });

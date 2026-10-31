@@ -26,12 +26,12 @@ export function Meter({
   const scale = Math.max(ceiling * 1.15, value, 1);
   const over = value > (max ?? target * 1.1);
   const met = !over && value >= (min ?? target * 0.9);
-  const fill = over ? colors.amber : met ? colors.kryptonite : colors.bone;
+  const fill = over ? colors.warning : met ? colors.success : colors.accent;
   return (
-    <View style={{ gap: 4 }}>
+    <View style={{ gap: 6 }}>
       <Row style={{ justifyContent: 'space-between' }}>
-        <T variant="label">{label}</T>
-        <T variant="label" color={over ? colors.amber : colors.concrete}>
+        <T>{label}</T>
+        <T variant="label" color={over ? colors.warning : colors.textMuted}>
           {Math.round(value)}/{Math.round(max ?? target)} {unit}
         </T>
       </Row>
@@ -45,7 +45,7 @@ export function Meter({
 }
 
 const styles = StyleSheet.create({
-  track: { height: 6, backgroundColor: colors.seam, marginBottom: space.xs },
-  fill: { height: 6 },
-  mark: { position: 'absolute', top: -2, width: 1, height: 10, backgroundColor: colors.concrete },
+  track: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceHigh, marginBottom: space.xs },
+  fill: { height: 6, borderRadius: 3 },
+  mark: { position: 'absolute', top: -2, width: 2, height: 10, borderRadius: 1, backgroundColor: colors.textMuted },
 });

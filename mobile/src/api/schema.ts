@@ -203,6 +203,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/athletes/{athlete_id}/measurements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Measurements */
+        get: operations["get_measurements_athletes__athlete_id__measurements_get"];
+        /** Put Measurements */
+        put: operations["put_measurements_athletes__athlete_id__measurements_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/athletes/{athlete_id}/nutrition/{day}": {
         parameters: {
             query?: never;
@@ -247,6 +265,40 @@ export interface paths {
         get?: never;
         /** Put Readiness */
         put: operations["put_readiness_athletes__athlete_id__readiness_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/athletes/{athlete_id}/routine/{day}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Routine */
+        get: operations["get_routine_athletes__athlete_id__routine__day__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/athletes/{athlete_id}/routine/{day}/items/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Routine Item */
+        put: operations["put_routine_item_athletes__athlete_id__routine__day__items__item_id__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -653,8 +705,14 @@ export interface components {
             hr_max_override?: number | null;
             /** Name */
             name: string;
+            /** Nutrition Goal */
+            nutrition_goal?: ("cut" | "maintain" | "bulk" | "cycle") | null;
+            /** Routine Items */
+            routine_items?: string[] | null;
             /** Sex */
             sex?: ("male" | "female") | null;
+            /** Sleep Target Hours */
+            sleep_target_hours?: number | null;
             tier: components["schemas"]["Tier"];
             /** Timezone */
             timezone?: string | null;
@@ -694,8 +752,17 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+            /**
+             * Nutrition Goal
+             * @enum {string}
+             */
+            nutrition_goal: "cut" | "maintain" | "bulk" | "cycle";
+            /** Routine Items */
+            routine_items: string[];
             /** Sex */
             sex: ("male" | "female") | null;
+            /** Sleep Target Hours */
+            sleep_target_hours: number;
             tier: components["schemas"]["Tier"];
             /** Timezone */
             timezone: string;
@@ -727,8 +794,14 @@ export interface components {
             hr_max_override?: number | null;
             /** Name */
             name?: string | null;
+            /** Nutrition Goal */
+            nutrition_goal?: ("cut" | "maintain" | "bulk" | "cycle") | null;
+            /** Routine Items */
+            routine_items?: string[] | null;
             /** Sex */
             sex?: ("male" | "female") | null;
+            /** Sleep Target Hours */
+            sleep_target_hours?: number | null;
             tier?: components["schemas"]["Tier"] | null;
             /** Timezone */
             timezone?: string | null;
@@ -935,9 +1008,27 @@ export interface components {
         };
         /**
          * Implement
+         * @description What an exercise needs. Machines are listed per station: most gyms have some, not all.
          * @enum {string}
          */
-        Implement: "barbell" | "dumbbell" | "kettlebell" | "cable" | "machine" | "bodyweight" | "sled" | "trap_bar" | "band" | "medicine_ball" | "roller" | "ergometer";
+        Implement: "barbell" | "dumbbell" | "kettlebell" | "cable" | "machine" | "leg_press" | "leg_extension" | "leg_curl" | "smith" | "hack_squat" | "calf_machine" | "hip_machine" | "lat_pulldown" | "row_machine" | "chest_press" | "pec_deck" | "shoulder_press" | "bodyweight" | "sled" | "trap_bar" | "band" | "medicine_ball" | "roller" | "ergometer";
+        /**
+         * LastSet
+         * @description The heaviest set of the last day the exercise was logged.
+         */
+        LastSet: {
+            /** Load Kg */
+            load_kg: number | null;
+            /**
+             * On
+             * Format: date
+             */
+            on: string;
+            /** Reps */
+            reps: number | null;
+            /** Rpe */
+            rpe: number | null;
+        };
         /** MacrosOut */
         MacrosOut: {
             /** Carbs G */
@@ -953,7 +1044,7 @@ export interface components {
          * Meal
          * @enum {string}
          */
-        Meal: "breakfast" | "post_workout" | "snack" | "dinner";
+        Meal: "breakfast" | "pre_workout" | "post_workout" | "snack" | "dinner";
         /** MealPlanOut */
         MealPlanOut: {
             /** Carb Curfew */
@@ -963,6 +1054,41 @@ export interface components {
             /** Suggestions */
             suggestions: components["schemas"]["StapleOut"][];
             target: components["schemas"]["MacrosOut"];
+        };
+        /** MeasurementSiteOut */
+        MeasurementSiteOut: {
+            /** Change Cm */
+            change_cm: number | null;
+            /** History */
+            history: [
+                string,
+                number
+            ][];
+            /** Label */
+            label: string;
+            /** Latest Cm */
+            latest_cm: number | null;
+            /** Latest Day */
+            latest_day: string | null;
+            /** Site */
+            site: string;
+        };
+        /** MeasurementsIn */
+        MeasurementsIn: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Values */
+            values: {
+                [key: string]: number | null;
+            };
+        };
+        /** MeasurementsOut */
+        MeasurementsOut: {
+            /** Sites */
+            sites: components["schemas"]["MeasurementSiteOut"][];
         };
         /** MissedOut */
         MissedOut: {
@@ -986,6 +1112,21 @@ export interface components {
          * @enum {string}
          */
         Mode: "timed" | "reps" | "hold" | "distance";
+        /** MuscleVolumeOut */
+        MuscleVolumeOut: {
+            /** Label */
+            label: string;
+            /** Muscle */
+            muscle: string;
+            /** Previous Sets */
+            previous_sets: number;
+            /** Sets */
+            sets: number;
+            /** Target Max */
+            target_max: number;
+            /** Target Min */
+            target_min: number;
+        };
         /** NutritionDayOut */
         NutritionDayOut: {
             /** Alerts */
@@ -996,8 +1137,15 @@ export interface components {
              * Format: date
              */
             day: string;
+            /** Day Kind */
+            day_kind: ("high" | "medium" | "rest") | null;
             /** Entries */
             entries: components["schemas"]["FoodEntryOut"][];
+            /**
+             * Goal
+             * @enum {string}
+             */
+            goal: "cut" | "maintain" | "bulk" | "cycle";
             /** Is Training Day */
             is_training_day: boolean;
             /** Kcal Ceiling */
@@ -1038,9 +1186,11 @@ export interface components {
          * @description Biomechanical patterns the Chaos Engine must preserve across cycles.
          * @enum {string}
          */
-        Pattern: "pull_vertical" | "pull_horizontal" | "push_horizontal" | "push_vertical" | "squat" | "hinge" | "lunge" | "carry" | "core_anti_rotation" | "core_flexion" | "neck" | "arms" | "shoulders" | "traps" | "sprint" | "cardio" | "myofascial" | "mobility";
+        Pattern: "pull_vertical" | "pull_horizontal" | "push_horizontal" | "push_vertical" | "squat" | "hinge" | "lunge" | "carry" | "core_anti_rotation" | "core_flexion" | "neck" | "arms" | "shoulders" | "traps" | "knee_extension" | "knee_flexion" | "calves" | "hip_isolation" | "chest_fly" | "rear_delt" | "sprint" | "cardio" | "myofascial" | "mobility";
         /** Prescription */
         Prescription: {
+            /** Best E1Rm Kg */
+            best_e1rm_kg: number | null;
             /** Cues */
             cues: string[];
             /** Distance M */
@@ -1056,6 +1206,7 @@ export interface components {
             intensity: string | null;
             /** Intra Set Rest Seconds */
             intra_set_rest_seconds: number | null;
+            last_set: components["schemas"]["LastSet"] | null;
             modality: components["schemas"]["Modality"];
             mode: components["schemas"]["Mode"];
             /** Name */
@@ -1088,6 +1239,8 @@ export interface components {
              * @default false
              */
             unilateral: boolean;
+            /** Warmup Sets */
+            warmup_sets: components["schemas"]["WarmupSet"][];
         };
         /** ProductOut */
         ProductOut: {
@@ -1127,6 +1280,8 @@ export interface components {
             days: number;
             /** Diet */
             diet: components["schemas"]["DietDayOut"][];
+            /** Muscle Volume */
+            muscle_volume: components["schemas"]["MuscleVolumeOut"][];
             /** Readiness */
             readiness: components["schemas"]["ReadinessDayOut"][];
             /** Strength */
@@ -1195,6 +1350,97 @@ export interface components {
             reasons: string[];
             /** Score */
             score: number;
+        };
+        /** RoutineCheckIn */
+        RoutineCheckIn: {
+            /** Done */
+            done?: boolean | null;
+            /** Value */
+            value?: number | null;
+        };
+        /** RoutineDayOut */
+        RoutineDayOut: {
+            /** Complete */
+            complete: boolean;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Done */
+            done: number;
+            /** Total */
+            total: number;
+        };
+        /** RoutineItemOut */
+        RoutineItemOut: {
+            /** Auto */
+            auto: boolean;
+            /** Detail */
+            detail: string | null;
+            /** Done */
+            done: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "check" | "water";
+            /**
+             * Section
+             * @enum {string}
+             */
+            section: "morning" | "day" | "night";
+            /** Target */
+            target: number | null;
+            /** Title */
+            title: string;
+            /** Value */
+            value: number | null;
+        };
+        /** RoutineOptionOut */
+        RoutineOptionOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+        };
+        /** RoutineOut */
+        RoutineOut: {
+            /** Bedtime */
+            bedtime: string;
+            /** Best Streak */
+            best_streak: number;
+            /** Complete */
+            complete: boolean;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Done */
+            done: number;
+            /** Items */
+            items: components["schemas"]["RoutineItemOut"][];
+            /** Options */
+            options: components["schemas"]["RoutineOptionOut"][];
+            /** Screens Off */
+            screens_off: string;
+            /** Sleep Target Hours */
+            sleep_target_hours: number;
+            /** Streak */
+            streak: number;
+            /** Total */
+            total: number;
+            /** Wake Time */
+            wake_time: string;
+            /** Water Target Ml */
+            water_target_ml: number;
+            /** Week */
+            week: components["schemas"]["RoutineDayOut"][];
         };
         /** SampleIn */
         SampleIn: {
@@ -1380,17 +1626,22 @@ export interface components {
         };
         /**
          * Tier
+         * @description Training program the athlete follows (the API keeps the historical name "tier").
          * @enum {string}
          */
-        Tier: "vigilante" | "dark_knight" | "brawler";
+        Tier: "vigilante" | "dark_knight" | "brawler" | "full_body" | "upper_lower" | "push_pull_legs" | "batfleck" | "norton_fb" | "conjugate" | "gotham_armor";
         /** TierOut */
         TierOut: {
             /** Cycle Length */
             cycle_length: number;
             /** Cycle Structure */
             cycle_structure: string;
+            /** Description */
+            description: string;
             /** Max Recommended Weeks */
             max_recommended_weeks: number | null;
+            /** Name */
+            name: string;
             /** Protocol Id */
             protocol_id: string;
             /** Requires Waiver */
@@ -1434,6 +1685,13 @@ export interface components {
              * Format: date-time
              */
             woke_at: string;
+        };
+        /** WarmupSet */
+        WarmupSet: {
+            /** Load Kg */
+            load_kg: number;
+            /** Reps */
+            reps: number;
         };
         /** WeighInIn */
         WeighInIn: {
@@ -1879,6 +2137,74 @@ export interface operations {
             };
         };
     };
+    get_measurements_athletes__athlete_id__measurements_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path: {
+                athlete_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_measurements_athletes__athlete_id__measurements_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                athlete_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeasurementsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     nutrition_day_athletes__athlete_id__nutrition__day__get: {
         parameters: {
             query?: never;
@@ -1966,6 +2292,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadinessSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_routine_athletes__athlete_id__routine__day__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                day: string;
+                athlete_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutineOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_routine_item_athletes__athlete_id__routine__day__items__item_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                day: string;
+                item_id: string;
+                athlete_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutineCheckIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutineOut"];
                 };
             };
             /** @description Validation Error */

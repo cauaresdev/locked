@@ -6,7 +6,8 @@ import { api } from '../api/client';
 import type { Dairy, FoodEntryInput, Meal, Staple } from '../api/types';
 import { MEAL_LABEL, entryFromStaple } from '../engine/nutrition';
 import { colors, space } from '../theme';
-import { Badge, Button, Divider, Field, Panel, Row, T } from './ui';
+import { Icon } from './Icon';
+import { Badge, Button, Chip, Divider, Field, Panel, Row, T } from './ui';
 
 const num = (v: string) => (v.trim() ? Number(v.replace(',', '.')) : 0);
 
@@ -48,23 +49,24 @@ export function FoodPicker({
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet">
       <SafeAreaView style={styles.root}>
         <Row style={{ justifyContent: 'space-between', padding: space.lg }}>
-          <T variant="title" style={{ fontSize: 18 }}>{MEAL_LABEL[meal]}</T>
-          <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button">
-            <T variant="label">Fechar</T>
+          <T variant="display" style={{ fontSize: 24, lineHeight: 30 }}>{MEAL_LABEL[meal]}</T>
+          <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Fechar"
+            style={styles.close}>
+            <Icon name="close" size={20} color={colors.text} />
           </Pressable>
         </Row>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"
           automaticallyAdjustKeyboardInsets>
           <Row>
-            <Button tone={manual ? 'ghost' : 'primary'} label="Protocolo" onPress={() => setManual(false)} style={{ flex: 1 }} />
-            <Button tone={manual ? 'primary' : 'ghost'} label="Manual" onPress={() => setManual(true)} style={{ flex: 1 }} />
+            <Chip label="Do protocolo" selected={!manual} onPress={() => setManual(false)} style={{ flex: 1 }} />
+            <Chip label="Manual" selected={manual} onPress={() => setManual(true)} style={{ flex: 1 }} />
           </Row>
 
           {!manual &&
             ordered.map((s) => {
               const selected = picked?.id === s.id;
               return (
-                <Panel key={s.id} accent={selected ? colors.bone : undefined}>
+                <Panel key={s.id} raised={selected}>
                   {/* Only the header picks the staple: taps in the open editor must not reset the grams. */}
                   <Pressable
                     onPress={() => {
@@ -114,7 +116,7 @@ export function FoodPicker({
               <Divider />
               <Row>
                 {(['none', 'traces', 'contains'] as const).map((d) => (
-                  <Button key={d} tone={dairy === d ? (d === 'none' ? 'primary' : 'alert') : 'ghost'}
+                  <Chip key={d} selected={dairy === d}
                     label={d === 'none' ? 'Sem leite' : d === 'traces' ? 'Traços' : 'Laticínio'}
                     onPress={() => setDairy(d)} style={{ flex: 1, paddingHorizontal: 4 }} />
                 ))}
@@ -139,6 +141,14 @@ export function FoodPicker({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.void },
-  content: { paddingHorizontal: space.lg, gap: space.sm },
+  root: { flex: 1, backgroundColor: colors.bg },
+  content: { paddingHorizontal: space.lg, gap: space.md },
+  close: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

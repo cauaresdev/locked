@@ -4,6 +4,7 @@ export const SODIUM_MEAL_MAX_MG = 500;
 
 export const MEAL_LABEL: Record<Meal, string> = {
   breakfast: 'Café da manhã',
+  pre_workout: 'Pré-treino',
   post_workout: 'Pós-treino / Almoço',
   snack: 'Lanche',
   dinner: 'Jantar',
@@ -49,11 +50,13 @@ export function entryFromProduct(id: string, day: string, meal: Meal, p: Product
 
 /**
  * Immediate scanner verdict for a portion, given the sodium already eaten in
- * the target meal: dairy is always red, and so is pushing the meal over 500 mg.
+ * the target meal: on the Jalali plans dairy is always red, and so is pushing the
+ * meal over 500 mg; the carb-cycling plan has neither rule.
  */
-export function portionAlerts(p: Product, grams: number, mealSodiumSoFar: number): Alert[] {
+export function portionAlerts(p: Product, grams: number, mealSodiumSoFar: number, jalali = true): Alert[] {
   const out: Alert[] = [];
   const base = { meal: null, entry_id: null };
+  if (!jalali) return out;
   if (p.dairy === 'contains') out.push({ ...base, level: 'red', code: 'dairy', message: `CONTÉM LATICÍNIO (${p.dairy_evidence})` });
   else if (p.dairy === 'traces') out.push({ ...base, level: 'amber', code: 'dairy_traces', message: 'Pode conter traços de leite' });
   else if (p.dairy === 'isolate')

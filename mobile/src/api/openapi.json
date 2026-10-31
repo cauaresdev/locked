@@ -220,6 +220,37 @@
             "title": "Name",
             "type": "string"
           },
+          "nutrition_goal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cut",
+                  "maintain",
+                  "bulk",
+                  "cycle"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nutrition Goal"
+          },
+          "routine_items": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Items"
+          },
           "sex": {
             "anyOf": [
               {
@@ -234,6 +265,19 @@
               }
             ],
             "title": "Sex"
+          },
+          "sleep_target_hours": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 6.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sleep Target Hours"
           },
           "tier": {
             "$ref": "#/components/schemas/Tier"
@@ -376,6 +420,23 @@
             "title": "Name",
             "type": "string"
           },
+          "nutrition_goal": {
+            "enum": [
+              "cut",
+              "maintain",
+              "bulk",
+              "cycle"
+            ],
+            "title": "Nutrition Goal",
+            "type": "string"
+          },
+          "routine_items": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Routine Items",
+            "type": "array"
+          },
           "sex": {
             "anyOf": [
               {
@@ -390,6 +451,10 @@
               }
             ],
             "title": "Sex"
+          },
+          "sleep_target_hours": {
+            "title": "Sleep Target Hours",
+            "type": "number"
           },
           "tier": {
             "$ref": "#/components/schemas/Tier"
@@ -433,6 +498,9 @@
           "waiver_accepted_at",
           "equipment",
           "health_consent_at",
+          "sleep_target_hours",
+          "nutrition_goal",
+          "routine_items",
           "cycle_length",
           "cycle_structure"
         ],
@@ -549,6 +617,37 @@
             ],
             "title": "Name"
           },
+          "nutrition_goal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cut",
+                  "maintain",
+                  "bulk",
+                  "cycle"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nutrition Goal"
+          },
+          "routine_items": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Items"
+          },
           "sex": {
             "anyOf": [
               {
@@ -563,6 +662,19 @@
               }
             ],
             "title": "Sex"
+          },
+          "sleep_target_hours": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 6.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sleep Target Hours"
           },
           "tier": {
             "anyOf": [
@@ -1169,12 +1281,25 @@
         "type": "object"
       },
       "Implement": {
+        "description": "What an exercise needs. Machines are listed per station: most gyms have some, not all.",
         "enum": [
           "barbell",
           "dumbbell",
           "kettlebell",
           "cable",
           "machine",
+          "leg_press",
+          "leg_extension",
+          "leg_curl",
+          "smith",
+          "hack_squat",
+          "calf_machine",
+          "hip_machine",
+          "lat_pulldown",
+          "row_machine",
+          "chest_press",
+          "pec_deck",
+          "shoulder_press",
           "bodyweight",
           "sled",
           "trap_bar",
@@ -1185,6 +1310,57 @@
         ],
         "title": "Implement",
         "type": "string"
+      },
+      "LastSet": {
+        "description": "The heaviest set of the last day the exercise was logged.",
+        "properties": {
+          "load_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Load Kg"
+          },
+          "on": {
+            "format": "date",
+            "title": "On",
+            "type": "string"
+          },
+          "reps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reps"
+          },
+          "rpe": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpe"
+          }
+        },
+        "required": [
+          "on",
+          "load_kg",
+          "reps",
+          "rpe"
+        ],
+        "title": "LastSet",
+        "type": "object"
       },
       "MacrosOut": {
         "properties": {
@@ -1217,6 +1393,7 @@
       "Meal": {
         "enum": [
           "breakfast",
+          "pre_workout",
           "post_workout",
           "snack",
           "dinner"
@@ -1255,6 +1432,129 @@
           "consumed"
         ],
         "title": "MealPlanOut",
+        "type": "object"
+      },
+      "MeasurementSiteOut": {
+        "properties": {
+          "change_cm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Cm"
+          },
+          "history": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "latest_cm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Cm"
+          },
+          "latest_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Day"
+          },
+          "site": {
+            "title": "Site",
+            "type": "string"
+          }
+        },
+        "required": [
+          "site",
+          "label",
+          "latest_cm",
+          "latest_day",
+          "change_cm",
+          "history"
+        ],
+        "title": "MeasurementSiteOut",
+        "type": "object"
+      },
+      "MeasurementsIn": {
+        "properties": {
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "maximum": 250.0,
+                  "minimum": 10.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxProperties": 8,
+            "minProperties": 1,
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "day",
+          "values"
+        ],
+        "title": "MeasurementsIn",
+        "type": "object"
+      },
+      "MeasurementsOut": {
+        "properties": {
+          "sites": {
+            "items": {
+              "$ref": "#/components/schemas/MeasurementSiteOut"
+            },
+            "title": "Sites",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sites"
+        ],
+        "title": "MeasurementsOut",
         "type": "object"
       },
       "MissedOut": {
@@ -1305,6 +1605,44 @@
         "title": "Mode",
         "type": "string"
       },
+      "MuscleVolumeOut": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "muscle": {
+            "title": "Muscle",
+            "type": "string"
+          },
+          "previous_sets": {
+            "title": "Previous Sets",
+            "type": "integer"
+          },
+          "sets": {
+            "title": "Sets",
+            "type": "integer"
+          },
+          "target_max": {
+            "title": "Target Max",
+            "type": "integer"
+          },
+          "target_min": {
+            "title": "Target Min",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "muscle",
+          "label",
+          "sets",
+          "previous_sets",
+          "target_min",
+          "target_max"
+        ],
+        "title": "MuscleVolumeOut",
+        "type": "object"
+      },
       "NutritionDayOut": {
         "properties": {
           "alerts": {
@@ -1322,12 +1660,38 @@
             "title": "Day",
             "type": "string"
           },
+          "day_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "high",
+                  "medium",
+                  "rest"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day Kind"
+          },
           "entries": {
             "items": {
               "$ref": "#/components/schemas/FoodEntryOut"
             },
             "title": "Entries",
             "type": "array"
+          },
+          "goal": {
+            "enum": [
+              "cut",
+              "maintain",
+              "bulk",
+              "cycle"
+            ],
+            "title": "Goal",
+            "type": "string"
           },
           "is_training_day": {
             "title": "Is Training Day",
@@ -1396,6 +1760,8 @@
         "required": [
           "day",
           "is_training_day",
+          "goal",
+          "day_kind",
           "lbm_kg",
           "lbm_source",
           "kcal_floor",
@@ -1446,6 +1812,12 @@
           "arms",
           "shoulders",
           "traps",
+          "knee_extension",
+          "knee_flexion",
+          "calves",
+          "hip_isolation",
+          "chest_fly",
+          "rear_delt",
           "sprint",
           "cardio",
           "myofascial",
@@ -1456,6 +1828,18 @@
       },
       "Prescription": {
         "properties": {
+          "best_e1rm_kg": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best E1Rm Kg"
+          },
           "cues": {
             "items": {
               "type": "string"
@@ -1528,6 +1912,16 @@
               }
             ],
             "title": "Intra Set Rest Seconds"
+          },
+          "last_set": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastSet"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "modality": {
             "$ref": "#/components/schemas/Modality"
@@ -1665,6 +2059,13 @@
             "default": false,
             "title": "Unilateral",
             "type": "boolean"
+          },
+          "warmup_sets": {
+            "items": {
+              "$ref": "#/components/schemas/WarmupSet"
+            },
+            "title": "Warmup Sets",
+            "type": "array"
           }
         },
         "required": [
@@ -1690,7 +2091,10 @@
           "target_rpe",
           "suggested_load_kg",
           "intensity",
-          "cues"
+          "cues",
+          "last_set",
+          "best_e1rm_kg",
+          "warmup_sets"
         ],
         "title": "Prescription",
         "type": "object"
@@ -1846,6 +2250,13 @@
             "title": "Diet",
             "type": "array"
           },
+          "muscle_volume": {
+            "items": {
+              "$ref": "#/components/schemas/MuscleVolumeOut"
+            },
+            "title": "Muscle Volume",
+            "type": "array"
+          },
           "readiness": {
             "items": {
               "$ref": "#/components/schemas/ReadinessDayOut"
@@ -1867,6 +2278,7 @@
         "required": [
           "days",
           "strength",
+          "muscle_volume",
           "weight",
           "readiness",
           "armor_cycles",
@@ -2100,6 +2512,259 @@
           "reasons"
         ],
         "title": "ReadinessSummary",
+        "type": "object"
+      },
+      "RoutineCheckIn": {
+        "properties": {
+          "done": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Done"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maximum": 15000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "RoutineCheckIn",
+        "type": "object"
+      },
+      "RoutineDayOut": {
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "done",
+          "total",
+          "complete"
+        ],
+        "title": "RoutineDayOut",
+        "type": "object"
+      },
+      "RoutineItemOut": {
+        "properties": {
+          "auto": {
+            "title": "Auto",
+            "type": "boolean"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "check",
+              "water"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "section": {
+            "enum": [
+              "morning",
+              "day",
+              "night"
+            ],
+            "title": "Section",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "section",
+          "kind",
+          "title",
+          "detail",
+          "done",
+          "auto",
+          "value",
+          "target"
+        ],
+        "title": "RoutineItemOut",
+        "type": "object"
+      },
+      "RoutineOptionOut": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "enabled"
+        ],
+        "title": "RoutineOptionOut",
+        "type": "object"
+      },
+      "RoutineOut": {
+        "properties": {
+          "bedtime": {
+            "title": "Bedtime",
+            "type": "string"
+          },
+          "best_streak": {
+            "title": "Best Streak",
+            "type": "integer"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineOptionOut"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "screens_off": {
+            "title": "Screens Off",
+            "type": "string"
+          },
+          "sleep_target_hours": {
+            "title": "Sleep Target Hours",
+            "type": "number"
+          },
+          "streak": {
+            "title": "Streak",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "wake_time": {
+            "title": "Wake Time",
+            "type": "string"
+          },
+          "water_target_ml": {
+            "title": "Water Target Ml",
+            "type": "integer"
+          },
+          "week": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineDayOut"
+            },
+            "title": "Week",
+            "type": "array"
+          }
+        },
+        "required": [
+          "day",
+          "wake_time",
+          "bedtime",
+          "screens_off",
+          "sleep_target_hours",
+          "water_target_ml",
+          "items",
+          "done",
+          "total",
+          "complete",
+          "streak",
+          "best_streak",
+          "week",
+          "options"
+        ],
+        "title": "RoutineOut",
         "type": "object"
       },
       "SampleIn": {
@@ -2642,10 +3307,18 @@
         "type": "object"
       },
       "Tier": {
+        "description": "Training program the athlete follows (the API keeps the historical name \"tier\").",
         "enum": [
           "vigilante",
           "dark_knight",
-          "brawler"
+          "brawler",
+          "full_body",
+          "upper_lower",
+          "push_pull_legs",
+          "batfleck",
+          "norton_fb",
+          "conjugate",
+          "gotham_armor"
         ],
         "title": "Tier",
         "type": "string"
@@ -2660,6 +3333,10 @@
             "title": "Cycle Structure",
             "type": "string"
           },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
           "max_recommended_weeks": {
             "anyOf": [
               {
@@ -2670,6 +3347,10 @@
               }
             ],
             "title": "Max Recommended Weeks"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
           },
           "protocol_id": {
             "title": "Protocol Id",
@@ -2693,6 +3374,8 @@
         },
         "required": [
           "tier",
+          "name",
+          "description",
           "protocol_id",
           "cycle_structure",
           "cycle_length",
@@ -2789,6 +3472,26 @@
           "woke_at"
         ],
         "title": "WakeIn",
+        "type": "object"
+      },
+      "WarmupSet": {
+        "properties": {
+          "load_kg": {
+            "minimum": 0.0,
+            "title": "Load Kg",
+            "type": "number"
+          },
+          "reps": {
+            "minimum": 1.0,
+            "title": "Reps",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "load_kg",
+          "reps"
+        ],
+        "title": "WarmupSet",
         "type": "object"
       },
       "WeighInIn": {
@@ -3575,6 +4278,120 @@
         ]
       }
     },
+    "/athletes/{athlete_id}/measurements": {
+      "get": {
+        "operationId": "get_measurements_athletes__athlete_id__measurements_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 365,
+              "maximum": 1098,
+              "minimum": 7,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeasurementsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Measurements",
+        "tags": [
+          "progress"
+        ]
+      },
+      "put": {
+        "operationId": "put_measurements_athletes__athlete_id__measurements_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeasurementsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeasurementsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Measurements",
+        "tags": [
+          "progress"
+        ]
+      }
+    },
     "/athletes/{athlete_id}/nutrition/{day}": {
       "get": {
         "operationId": "nutrition_day_athletes__athlete_id__nutrition__day__get",
@@ -3745,6 +4562,139 @@
         "summary": "Put Readiness",
         "tags": [
           "training"
+        ]
+      }
+    },
+    "/athletes/{athlete_id}/routine/{day}": {
+      "get": {
+        "operationId": "get_routine_athletes__athlete_id__routine__day__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Routine",
+        "tags": [
+          "routine"
+        ]
+      }
+    },
+    "/athletes/{athlete_id}/routine/{day}/items/{item_id}": {
+      "put": {
+        "operationId": "put_routine_item_athletes__athlete_id__routine__day__items__item_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutineCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Routine Item",
+        "tags": [
+          "routine"
         ]
       }
     },

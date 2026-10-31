@@ -9,9 +9,11 @@ import { api } from '../../api/client';
 import type { Athlete, Implement, Sex, Tier } from '../../api/types';
 import { clearToken } from '../../auth';
 import { useDeviceControls, useDeviceScan, type FoundDevice } from '../../ble/devices';
-import { Badge, Button, Chip, Divider, Field, Panel, Row, T, TextLink } from '../../components/ui';
+import { Icon } from '../../components/Icon';
+import { Badge, Button, Chip, Divider, Field, Panel, Row, ScreenHeader, T, TextLink } from '../../components/ui';
 import { isoDay } from '../../engine/format';
 import { GLOSSARY, signalLabel } from '../../engine/glossary';
+import { ALL_EQUIPMENT, EQUIPMENT_GROUPS, GYM_PRESETS, PROGRAM_NAME, PROGRAMS } from '../../engine/programs';
 import { healthProvider, syncNight } from '../../health';
 import { cancelEarlyBird, exactAlarmsAllowed, openExactAlarmSettings } from '../../notifications';
 import {
@@ -25,28 +27,13 @@ import {
 } from '../../storage/db';
 import type { DeviceRole } from '../../storage/db';
 import { flushAll } from '../../sync';
-import { colors, fonts, space } from '../../theme';
+import { colors, radius, space } from '../../theme';
 
-const TIER_LABEL: Record<Tier, string> = { vigilante: 'Vigilante', dark_knight: 'Dark Knight', brawler: 'Brawler' };
 const ROLE_LABEL: Record<DeviceRole, string> = {
   hr: 'Cinta cardíaca',
   bike: 'AirBike / bike (padrão FTMS: Bluetooth de aparelhos de academia)',
 };
 
-// Bodyweight is always available, so it is not a toggle.
-const EQUIPMENT: { id: Implement; label: string }[] = [
-  { id: 'barbell', label: 'Barra olímpica' },
-  { id: 'trap_bar', label: 'Barra hexagonal (trap bar)' },
-  { id: 'dumbbell', label: 'Halteres' },
-  { id: 'kettlebell', label: 'Kettlebell' },
-  { id: 'cable', label: 'Polia / cabo' },
-  { id: 'machine', label: 'Máquinas' },
-  { id: 'sled', label: 'Trenó' },
-  { id: 'band', label: 'Elástico' },
-  { id: 'medicine_ball', label: 'Medicine ball' },
-  { id: 'roller', label: 'Rolo de liberação' },
-  { id: 'ergometer', label: 'Bike / remo / elíptico' },
-];
 
 const str = (v: number | null | undefined) => (v == null ? '' : String(v));
 const num = (v: string) => (v.trim() ? Number(v.replace(',', '.')) : null);
@@ -68,7 +55,7 @@ const MSG_MS = { ok: 4000, err: 8000 } as const; // errors stay a little longer 
 
 function Feedback({ msg, at }: { msg: Msg | null; at: Where }) {
   if (!msg || msg.at !== at) return null;
-  return <T color={msg.tone === 'ok' ? colors.kryptonite : colors.amber}>{msg.text}</T>;
+  return <T color={msg.tone === 'ok' ? colors.success : colors.warning}>{msg.text}</T>;
 }
 
 export default function Settings() {
@@ -126,7 +113,7 @@ export default function Settings() {
   function changeTier(tier: Tier) {
     if (!athlete || tier === athlete.tier) return;
     const go = (waiver: boolean) =>
-      save({ tier, accept_brawler_waiver: waiver }, `Tier ${TIER_LABEL[tier]}: novo ciclo começa hoje.`, 'tier');
+      save({ tier, accept_brawler_waiver: waiver }, `Programa ${PROGRAM_NAME[tier]}: novo ciclo começa hoje.`, 'tier');
     if (tier === 'brawler' && !athlete.waiver_accepted_at) {
       Alert.alert(
         'Termo de responsabilidade',
@@ -135,7 +122,7 @@ export default function Settings() {
         [{ text: 'Cancelar', style: 'cancel' }, { text: 'Aceito', onPress: () => go(true) }],
       );
     } else {
-      Alert.alert('Trocar de tier?', 'O ciclo reinicia hoje no dia 1.', [
+      Alert.alert('Trocar de programa?', 'O ciclo reinicia hoje no dia 1.', [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Trocar', onPress: () => go(false) },
       ]);
@@ -245,10 +232,10 @@ export default function Settings() {
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets>
-        <T variant="title">Ajustes</T>
+        <ScreenHeader title="Perfil" overline={athlete.name} />
 
-        <Panel>
-          <T variant="label">Perfil</T>
+        <Panel style={styles.panel}>
+          <T variant="title">Dados pessoais</T>
           <Field label="Nome" value={form.name} onChangeText={(v) => edit({ name: v })} autoComplete="name" />
           <Row>
             <Field label="Peso kg" value={form.weight} onChangeText={(v) => edit({ weight: v })} keyboardType="decimal-pad" />
@@ -263,11 +250,12 @@ export default function Settings() {
           </Row>
           <Row>
             {(['male', 'female'] as Sex[]).map((v) => (
-              <Button key={v} tone={form.sex === v ? 'primary' : 'ghost'} label={v === 'male' ? 'Masculino' : 'Feminino'}
+              <Chip key={v} selected={form.sex === v} label={v === 'male' ? 'Masculino' : 'Feminino'}
                 onPress={() => edit({ sex: v })} style={{ flex: 1 }} />
             ))}
           </Row>
           <Button
+            tone="secondary"
             label="Salvar perfil"
             onPress={() =>
               save(
@@ -292,25 +280,36 @@ export default function Settings() {
           <Feedback msg={msg} at="profile" />
         </Panel>
 
-        <Panel>
-          <T variant="label">Nível de operação</T>
-          <Row>
-            {(Object.keys(TIER_LABEL) as Tier[]).map((t) => (
-              <Button key={t} tone={athlete.tier === t ? 'primary' : 'ghost'} label={TIER_LABEL[t]}
-                onPress={() => changeTier(t)} style={{ flex: 1, paddingHorizontal: 4 }} />
-            ))}
-          </Row>
+        <Panel style={styles.panel}>
+          <T variant="title">Programa</T>
+          <View style={{ gap: space.sm }}>
+            {PROGRAMS.map((p) => {
+              const on = athlete.tier === p.tier;
+              return (
+                <Pressable key={p.tier} onPress={() => changeTier(p.tier)} accessibilityRole="radio"
+                  accessibilityState={{ checked: on }} accessibilityLabel={`${p.name}. ${p.spec}. ${p.body}`}
+                  style={[styles.program, on && styles.programOn]}>
+                  <Row style={{ justifyContent: 'space-between' }}>
+                    <T variant="title" color={on ? colors.accent : colors.text}>{p.name}</T>
+                    {on && <Icon name="check" size={18} color={colors.accent} />}
+                  </Row>
+                  <T variant="label">{p.spec}</T>
+                  <T variant="hint">{p.body}</T>
+                </Pressable>
+              );
+            })}
+          </View>
           <T variant="hint">Ciclo atual iniciado em {athlete.cycle_start}.</T>
           <Feedback msg={msg} at="tier" />
         </Panel>
 
-        <Panel>
-          <T variant="label">Dispositivos Bluetooth</T>
+        <Panel style={styles.panel}>
+          <T variant="title">Dispositivos Bluetooth</T>
           {(['hr', 'bike'] as DeviceRole[]).map((role) => (
             <Row key={role} style={{ justifyContent: 'space-between' }}>
               <View style={{ flex: 1 }}>
                 <T>{ROLE_LABEL[role]}</T>
-                <T variant="label" color={devices.connected[role] ? colors.kryptonite : colors.concrete}>
+                <T variant="label" color={devices.connected[role] ? colors.success : colors.textMuted}>
                   {devices.connected[role] ?? 'desconectado'}
                 </T>
               </View>
@@ -320,9 +319,9 @@ export default function Settings() {
               )}
             </Row>
           ))}
-          <Button tone="ghost" label={scan.scanning ? 'Buscando…' : 'Buscar dispositivos'} onPress={scan.scan}
+          <Button tone="secondary" icon="bluetooth" label={scan.scanning ? 'Buscando…' : 'Buscar dispositivos'} onPress={scan.scan}
             disabled={scan.scanning} />
-          {scan.error && <T color={colors.amber}>{scan.error}</T>}
+          {scan.error && <T color={colors.warning}>{scan.error}</T>}
           {scan.found.map((d: FoundDevice) => (
             <View key={d.id} style={{ gap: space.xs }}>
               <Divider />
@@ -332,7 +331,7 @@ export default function Settings() {
               </Row>
               <Row>
                 {d.roles.map((role) => (
-                  <Button key={role} tone="ghost" label={`Usar como ${role === 'hr' ? 'cinta' : 'bike'}`}
+                  <Button key={role} tone="secondary" label={`Usar como ${role === 'hr' ? 'cinta' : 'bike'}`}
                     onPress={() => devices.connect(d, role)} style={{ flex: 1 }} />
                 ))}
               </Row>
@@ -341,10 +340,10 @@ export default function Settings() {
         </Panel>
 
         {provider && (
-          <Panel>
+          <Panel style={styles.panel}>
             <Row style={{ justifyContent: 'space-between' }}>
-              <T variant="label">{provider.name}</T>
-              <Badge label={health ? 'Ativo' : 'Desligado'} color={health ? colors.kryptonite : colors.concrete} />
+              <T variant="title">{provider.name}</T>
+              <Badge label={health ? 'Ativo' : 'Desligado'} color={health ? colors.success : colors.textMuted} />
             </Row>
             <T variant="hint">
               VFC (variabilidade da frequência cardíaca), frequência cardíaca de repouso e sono da última noite
@@ -352,9 +351,9 @@ export default function Settings() {
               entram via sincronização do app do fabricante com o {provider.name}.
             </T>
             <Row>
-              <Button tone={health ? 'ghost' : 'primary'} label={health ? 'Desativar' : 'Conectar'} onPress={toggleHealth}
+              <Button tone="secondary" label={health ? 'Desativar' : 'Conectar'} onPress={toggleHealth}
                 style={{ flex: 1 }} />
-              {health && <Button tone="ghost" label="Sincronizar agora" onPress={syncNow} style={{ flex: 1 }} />}
+              {health && <Button tone="secondary" label="Sincronizar agora" onPress={syncNow} style={{ flex: 1 }} />}
             </Row>
             <Feedback msg={msg} at="health" />
           </Panel>
@@ -365,8 +364,8 @@ export default function Settings() {
         <EquipmentPanel athlete={athlete} onSave={(equipment) => save({ equipment }, 'Equipamentos salvos.', 'equipment')}
           feedback={<Feedback msg={msg} at="equipment" />} />
 
-        <Panel>
-          <T variant="label">Conta e dados (LGPD)</T>
+        <Panel style={styles.panel}>
+          <T variant="title">Conta e dados</T>
           <T variant="hint">
             Servidor: {process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000'}
           </T>
@@ -374,8 +373,8 @@ export default function Settings() {
             Pela LGPD (Lei Geral de Proteção de Dados) você pode baixar tudo o que o app guarda sobre você e excluir a
             conta a qualquer momento.
           </T>
-          <Button tone="ghost" label="Exportar meus dados" onPress={exportData} />
-          <Button tone="alert" label="Sair" onPress={logout} />
+          <Button tone="secondary" label="Exportar meus dados" onPress={exportData} />
+          <Button tone="secondary" label="Sair" onPress={logout} />
           <DeleteAccount onDelete={deleteAccount} />
           <Feedback msg={msg} at="account" />
         </Panel>
@@ -397,13 +396,13 @@ function ExactAlarmPanel() {
   }, []);
   if (allowed) return null;
   return (
-    <Panel accent={colors.amber}>
-      <T variant="label">Avisos na hora certa</T>
+    <Panel accent={colors.warning} style={styles.panel}>
+      <T variant="title">Avisos na hora certa</T>
       <T variant="hint">
         Com a tela travada, o Android pode atrasar o fim do descanso e o despertador do Early Bird. Ative
         “Alarmes e lembretes” para o Knightfall e eles tocam no segundo exato.
       </T>
-      <Button tone="ghost" label="Ativar alarmes e lembretes" onPress={openExactAlarmSettings} />
+      <Button tone="secondary" label="Ativar alarmes e lembretes" onPress={openExactAlarmSettings} />
     </Panel>
   );
 }
@@ -418,7 +417,7 @@ function EquipmentPanel({
   feedback: ReactNode;
 }) {
   const [picked, setPicked] = useState<Set<Implement>>(() => new Set(athlete.equipment));
-  const full = EQUIPMENT.every((e) => picked.has(e.id));
+  const full = ALL_EQUIPMENT.every((id) => picked.has(id));
   const toggle = (id: Implement) =>
     setPicked((s) => {
       const next = new Set(s);
@@ -427,23 +426,31 @@ function EquipmentPanel({
       return next;
     });
   return (
-    <Panel>
-      <T variant="label">Equipamentos disponíveis</T>
+    <Panel style={styles.panel}>
+      <T variant="title">Equipamentos da academia</T>
       <T variant="hint">
-        O sorteio de exercícios usa só o que estiver marcado (peso corporal sempre conta). Na sessão, “Trocar exercício”
-        mostra alternativas com o mesmo padrão de movimento.
+        Os treinos usam só o que estiver marcado (peso corporal sempre conta): na falta de uma máquina entra a
+        próxima opção da lista, como smith, halteres ou peso corporal. Na sessão, “Trocar exercício” mostra as
+        alternativas.
       </T>
       <View style={styles.chips}>
-        {EQUIPMENT.map((e) => (
-          <Chip key={e.id} role="checkbox" label={e.label} selected={picked.has(e.id)} onPress={() => toggle(e.id)} />
+        {GYM_PRESETS.map((p) => (
+          <Chip key={p.id} label={p.label} selected={false} accessibilityLabel={`Marcar: ${p.label}`}
+            onPress={() => setPicked(new Set(p.equipment ?? ALL_EQUIPMENT))} />
         ))}
       </View>
-      <Row>
-        <Button label="Salvar equipamentos" onPress={() => onSave(full ? null : [...picked, 'bodyweight'])}
-          style={{ flex: 1 }} />
-        <Button tone="ghost" label="Academia completa" onPress={() => setPicked(new Set(EQUIPMENT.map((e) => e.id)))}
-          style={{ flex: 1 }} />
-      </Row>
+      {EQUIPMENT_GROUPS.map((g) => (
+        <View key={g.title} style={{ gap: space.sm }}>
+          <T variant="label">{g.title}</T>
+          <View style={styles.chips}>
+            {g.items.map((e) => (
+              <Chip key={e.id} role="checkbox" label={e.label} selected={picked.has(e.id)} onPress={() => toggle(e.id)} />
+            ))}
+          </View>
+        </View>
+      ))}
+      <Button label="Salvar equipamentos"
+        onPress={() => onSave(full ? null : [...[...picked].filter((id) => ALL_EQUIPMENT.includes(id)), 'bodyweight'])} />
       {feedback}
     </Panel>
   );
@@ -452,17 +459,17 @@ function EquipmentPanel({
 function DeleteAccount({ onDelete }: { onDelete: (password: string) => void }) {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
-  if (!open) return <Button tone="alert" label="Excluir minha conta" onPress={() => setOpen(true)} />;
+  if (!open) return <Button tone="danger" label="Excluir minha conta" onPress={() => setOpen(true)} />;
   return (
     <View style={{ gap: space.sm }}>
-      <T color={colors.amber}>
+      <T color={colors.danger}>
         Apaga a conta e todos os treinos, pesagens, dieta e dados de saúde do servidor. Não dá para desfazer.
       </T>
       <Field label="Senha" value={password} onChangeText={setPassword} secureTextEntry placeholder="Confirme com sua senha"
         autoComplete="current-password" textContentType="password" style={{ fontSize: 16 }} />
       <Row>
-        <Button tone="ghost" label="Cancelar" onPress={() => setOpen(false)} style={{ flex: 1 }} />
-        <Button tone="alert" label="Excluir tudo" disabled={!password}
+        <Button tone="secondary" label="Cancelar" onPress={() => setOpen(false)} style={{ flex: 1 }} />
+        <Button tone="danger" label="Excluir tudo" disabled={!password}
           onPress={() =>
             Alert.alert('Excluir a conta?', 'Todos os dados serão apagados permanentemente.', [
               { text: 'Cancelar', style: 'cancel' },
@@ -482,15 +489,17 @@ function Glossary() {
       <Pressable onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }}
         style={{ minHeight: 44, justifyContent: 'center' }}>
         <Row style={{ justifyContent: 'space-between' }}>
-          <T variant="label">Glossário de siglas e termos</T>
-          <T variant="label">{open ? '▴' : '▾'}</T>
+          <T variant="title">Glossário</T>
+          <View style={{ transform: [{ rotate: open ? '-90deg' : '90deg' }] }}>
+            <Icon name="chevron-right" size={20} color={colors.textMuted} />
+          </View>
         </Row>
       </Pressable>
       {open &&
         GLOSSARY.map((g) => (
           <View key={g.term} style={{ gap: 2, marginTop: space.sm }}>
             <T>
-              <T style={{ fontFamily: fonts.monoBold }}>{g.term}</T> — {g.meaning}
+              <T style={{ fontWeight: '700' }}>{g.term}</T> — {g.meaning}
             </T>
             <T variant="hint">{g.detail}</T>
           </View>
@@ -500,7 +509,10 @@ function Glossary() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.void },
-  content: { padding: space.lg, gap: space.md, paddingBottom: space.xxl },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  root: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
+  panel: { gap: space.md },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  program: { gap: space.xs, padding: space.md, borderRadius: radius.md, backgroundColor: colors.surfaceHigh },
+  programOn: { borderWidth: 1, borderColor: colors.accent },
 });

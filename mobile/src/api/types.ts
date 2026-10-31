@@ -41,6 +41,11 @@ export type ReadinessDay = S['ReadinessDayOut'];
 export type ArmorCycle = S['ArmorCycleOut'];
 export type DietDay = S['DietDayOut'];
 export type AttendanceDay = S['AttendanceDayOut'];
+export type MuscleVolume = S['MuscleVolumeOut'];
+export type Measurements = S['MeasurementsOut'];
+export type MeasurementSite = S['MeasurementSiteOut'];
+export type MeasurementsInput = S['MeasurementsIn'];
+export type NutritionGoal = Athlete['nutrition_goal'];
 
 // --- nutrition ---------------------------------------------------------------
 export type Meal = S['Meal'];
@@ -61,3 +66,10 @@ export type Product = S['ProductOut'];
 export type TelemetrySample = S['SampleIn'];
 export type SampleKind = TelemetrySample['kind'];
 export type EarlyBird = S['EarlyBirdOut'];
+
+// --- Batfleck routine ------------------------------------------------------------
+export type Routine = S['RoutineOut'];
+export type RoutineItem = S['RoutineItemOut'];
+export type RoutineDay = S['RoutineDayOut'];
+export type RoutineOption = S['RoutineOptionOut'];
+export type RoutineCheck = S['RoutineCheckIn'];

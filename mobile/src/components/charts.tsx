@@ -3,16 +3,16 @@ import { View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-
 import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 
 import { clampIndex, nearestIndex, scaleX, scaleY, seriesStats, ticks, yDomain, type Domain } from '../engine/chart';
-import { colors, fonts, space } from '../theme';
+import { colors, space } from '../theme';
 import { Panel, Row, T, TextLink } from './ui';
 
-// Chart chrome follows the app palette: data in primary ink (bone), references and
-// secondary series in concrete, grid in seam. Status colors only where they mean status,
+// Chart chrome follows the app palette: the main series in the accent, references and
+// secondary series in muted text, grid in the border tone. Status colors only where they mean status,
 // always alongside a written level. Identity never relies on color alone: series differ
 // by mark (line vs. dot) and carry a legend; every chart also has a table view.
 
 const PAD = { left: 40, right: 10, top: 10, bottom: 20 };
-const TICK_FONT = { fontFamily: fonts.mono, fontSize: 10 } as const;
+const TICK_FONT = { fontSize: 10 } as const;
 
 export interface RefLine {
   y: number;
@@ -48,9 +48,9 @@ export function ChartCard({
 }) {
   const [asTable, setAsTable] = useState(false);
   return (
-    <Panel>
-      <Row style={{ justifyContent: 'space-between' }}>
-        <T variant="label" style={{ flex: 1 }}>{title}</T>
+    <Panel style={{ gap: space.md }}>
+      <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <T variant="title" style={{ flex: 1, fontSize: 16 }}>{title}</T>
         <TextLink label={asTable ? 'Ver gráfico' : 'Ver tabela'} onPress={() => setAsTable(!asTable)}
           accessibilityLabel={`${asTable ? 'Ver gráfico' : 'Ver tabela'}: ${title}`} />
       </Row>
@@ -92,7 +92,7 @@ function DataTable({ table }: { table: TableData }) {
       {table.rows.map((r, i) => (
         <Row key={i} style={{ justifyContent: 'space-between' }}>
           {r.map((c, j) => (
-            <T key={j} style={{ flex: 1, fontSize: 12 }}>{c}</T>
+            <T key={j} style={{ flex: 1, fontSize: 13 }}>{c}</T>
           ))}
         </Row>
       ))}
@@ -129,8 +129,8 @@ function Grid({ d, width, height, format, refs }: { d: Domain; width: number; he
         const y = scaleY(t, d, PAD.top, bottom);
         return (
           <G key={`t${t}`}>
-            <Line x1={PAD.left} x2={width - PAD.right} y1={y} y2={y} stroke={colors.seam} strokeWidth={1} />
-            <SvgText x={PAD.left - 6} y={y + 3} fill={colors.concrete} textAnchor="end" {...TICK_FONT}>{format(t)}</SvgText>
+            <Line x1={PAD.left} x2={width - PAD.right} y1={y} y2={y} stroke={colors.border} strokeWidth={1} />
+            <SvgText x={PAD.left - 6} y={y + 3} fill={colors.textMuted} textAnchor="end" {...TICK_FONT}>{format(t)}</SvgText>
           </G>
         );
       })}
@@ -138,9 +138,9 @@ function Grid({ d, width, height, format, refs }: { d: Domain; width: number; he
         const y = scaleY(r.y, d, PAD.top, bottom);
         return (
           <G key={`r${r.label}`}>
-            <Line x1={PAD.left} x2={width - PAD.right} y1={y} y2={y} stroke={colors.concrete} strokeWidth={1}
+            <Line x1={PAD.left} x2={width - PAD.right} y1={y} y2={y} stroke={colors.textMuted} strokeWidth={1}
               strokeDasharray="4 4" />
-            <SvgText x={width - PAD.right} y={y - 4} fill={colors.concrete} textAnchor="end" {...TICK_FONT}>{r.label}</SvgText>
+            <SvgText x={width - PAD.right} y={y - 4} fill={colors.textMuted} textAnchor="end" {...TICK_FONT}>{r.label}</SvgText>
           </G>
         );
       })}
@@ -153,10 +153,10 @@ function XLabels({ labels, width, height, n }: { labels: string[]; width: number
   const y = height - 4;
   return (
     <>
-      <SvgText x={scaleX(0, n, PAD.left, width - PAD.right)} y={y} fill={colors.concrete}
+      <SvgText x={scaleX(0, n, PAD.left, width - PAD.right)} y={y} fill={colors.textMuted}
         textAnchor={n > 1 ? 'start' : 'middle'} {...TICK_FONT}>{labels[0]}</SvgText>
       {n > 1 && (
-        <SvgText x={width - PAD.right} y={y} fill={colors.concrete} textAnchor="end" {...TICK_FONT}>
+        <SvgText x={width - PAD.right} y={y} fill={colors.textMuted} textAnchor="end" {...TICK_FONT}>
           {labels[labels.length - 1]}
         </SvgText>
       )}
@@ -262,17 +262,17 @@ export function LineChart({
               ) : (
                 s.values.map((v, i) =>
                   v == null ? null : (
-                    <Circle key={`${s.label}${i}`} cx={x(i)} cy={y(v)} r={4} fill={s.color} stroke={colors.gunmetal}
+                    <Circle key={`${s.label}${i}`} cx={x(i)} cy={y(v)} r={4} fill={s.color} stroke={colors.surface}
                       strokeWidth={2} />
                   ),
                 )
               ),
             )}
-            <Line x1={x(at)} x2={x(at)} y1={PAD.top} y2={bottom} stroke={colors.bone} strokeWidth={1} opacity={0.5} />
+            <Line x1={x(at)} x2={x(at)} y1={PAD.top} y2={bottom} stroke={colors.text} strokeWidth={1} opacity={0.5} />
             {series.map((s) =>
               s.values[at] != null ? (
                 <Circle key={`sel${s.label}`} cx={x(at)} cy={y(s.values[at] as number)} r={5} fill={s.color}
-                  stroke={colors.gunmetal} strokeWidth={2} />
+                  stroke={colors.surface} strokeWidth={2} />
               ) : null,
             )}
             <XLabels labels={xLabels} width={width} height={height} n={n} />
@@ -339,7 +339,7 @@ export function BarChart({
           items={[{
             label: selected.note ? `${seriesLabel} · ${selected.note}` : seriesLabel,
             value: format(selected.value),
-            key: { label: seriesLabel, kind: 'bar', color: selected.color ?? colors.bone },
+            key: { label: seriesLabel, kind: 'bar', color: selected.color ?? colors.accent },
           }]}
         />
       )}
@@ -348,7 +348,7 @@ export function BarChart({
           <Svg width={width} height={height}>
             <Grid d={d} width={width} height={height} format={format} refs={refs} />
             {bars.map((b, i) => (
-              <Path key={i} d={barPath(i, b.value)} fill={b.color ?? colors.bone}
+              <Path key={i} d={barPath(i, b.value)} fill={b.color ?? colors.accent}
                 opacity={sel == null || i === at ? 1 : 0.55} />
             ))}
             <XLabels labels={bars.map((b) => b.label)} width={width} height={height} n={n} />

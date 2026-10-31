@@ -6,11 +6,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../api/client';
 import type { Progress, ReadinessLevel } from '../../api/types';
 import { BarChart, ChartCard, LineChart, StatTile, type Bar } from '../../components/charts';
-import { Badge, Chip, Panel, Row, T } from '../../components/ui';
+import { MeasurementsCard } from '../../components/Measurements';
+import { Badge, Chip, Panel, Row, ScreenHeader, T } from '../../components/ui';
 import { shortDay } from '../../engine/chart';
 import { decimal, formatKgM } from '../../engine/format';
 import { storedAthlete, storedProgressReport, storeProgressReport } from '../../storage/db';
-import { colors, fonts, levelColor, space } from '../../theme';
+import { colors, levelColor, radius, space } from '../../theme';
 
 const RANGES = [30, 60, 90] as const;
 const DEFAULT_RANGE = 60;
@@ -61,30 +62,29 @@ export default function ProgressScreen() {
   if (!athleteId) return <Redirect href="/onboarding" />;
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.concrete} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.textMuted} />}
       >
-        <Row style={{ justifyContent: 'space-between' }}>
-          <T variant="title">Progresso</T>
-          {offline && <Badge label="Sem conexão · dados salvos" color={colors.amber} />}
-        </Row>
+        <ScreenHeader title="Progresso" right={offline ? <Badge label="Dados salvos" color={colors.warning} /> : undefined} />
 
         {/* One range control, above everything it scopes. */}
-        <Row style={{ gap: space.xs }}>
+        <Row style={{ gap: space.sm }}>
           {RANGES.map((r) => (
             <Chip key={r} label={`${r} dias`} selected={days === r} onPress={() => pickRange(r)} />
           ))}
         </Row>
 
         {!data ? (
-          <T color={colors.concrete}>{loading ? 'Carregando…' : 'Sem dados ainda. Abra com conexão.'}</T>
+          <T color={colors.textMuted}>{loading ? 'Carregando…' : 'Sem dados ainda. Abra com conexão.'}</T>
         ) : (
           <View style={{ gap: space.lg, opacity: loading ? 0.6 : 1 }}>
             <Summary data={data} />
             <StrengthCard data={data} lift={lift} onLift={setLift} />
+            <MuscleVolumeCard data={data} />
             <WeightCard data={data} />
+            <MeasurementsCard athleteId={athleteId} />
             <ReadinessCard data={data} />
             <SleepAndHrv data={data} />
             <ArmorCard data={data} />
@@ -132,10 +132,53 @@ function StrengthCard({ data, lift, onLift }: { data: Progress; lift: string | n
         ))}
       </ScrollView>
       <LineChart
-        series={[{ label: current.name, color: colors.bone, kind: 'line', values: current.history.map(([, v]) => v) }]}
+        series={[{ label: current.name, color: colors.accent, kind: 'line', values: current.history.map(([, v]) => v) }]}
         xLabels={current.history.map(([d]) => shortDay(d))}
         format={(v) => decimal(v, 0)}
       />
+    </ChartCard>
+  );
+}
+
+/** Hard sets per muscle this week against the 10–20 band that drives hypertrophy. */
+function MuscleVolumeCard({ data }: { data: Progress }) {
+  const rows = data.muscle_volume ?? []; // reports saved before this existed have none
+  if (!rows.some((m) => m.sets > 0 || m.previous_sets > 0)) return null;
+  const max = Math.max(...rows.map((m) => Math.max(m.sets, m.target_max)));
+  // Only what was trained gets a bar; the rest is one line, so the card stays short.
+  const trained = rows.filter((m) => m.sets > 0 || m.previous_sets > 0);
+  const idle = rows.filter((m) => m.sets === 0 && m.previous_sets === 0);
+  return (
+    <ChartCard
+      title="Séries por músculo · últimos 7 dias"
+      note={`Séries diretas registradas. Para hipertrofia, ${rows[0].target_min} a ${rows[0].target_max} por semana em cada músculo.`}
+      table={{
+        headers: ['Músculo', '7 dias', '7 dias antes'],
+        rows: rows.map((m) => [m.label, String(m.sets), String(m.previous_sets)]),
+      }}
+    >
+      <View style={{ gap: space.sm }}>
+        {trained.map((m) => {
+          const color = m.sets >= m.target_min && m.sets <= m.target_max ? colors.success
+            : m.sets > m.target_max ? colors.warning : colors.textMuted;
+          return (
+            <View key={m.muscle} style={{ gap: 4 }} accessible
+              accessibilityLabel={`${m.label}: ${m.sets} séries, semana anterior ${m.previous_sets}`}>
+              <Row style={{ justifyContent: 'space-between' }}>
+                <T variant="label" color={colors.text}>{m.label}</T>
+                <T variant="label" color={color}>{m.sets} {m.previous_sets !== m.sets ? `(antes ${m.previous_sets})` : ''}</T>
+              </Row>
+              <View style={styles.track}>
+                <View style={[styles.band, { left: `${(100 * m.target_min) / max}%`, width: `${(100 * (m.target_max - m.target_min)) / max}%` }]} />
+                <View style={[styles.fill, { width: `${(100 * Math.min(m.sets, max)) / max}%`, backgroundColor: color }]} />
+              </View>
+            </View>
+          );
+        })}
+        {idle.length > 0 && (
+          <T variant="hint">Sem séries nos últimos 14 dias: {idle.map((m) => m.label.toLowerCase()).join(', ')}.</T>
+        )}
+      </View>
     </ChartCard>
   );
 }
@@ -148,15 +191,15 @@ function WeightCard({ data }: { data: Progress }) {
       title="Peso corporal"
       note="A média de 7 dias é o peso usado nas metas de calorias, proteína e carga."
       legend={[
-        { label: 'média de 7 dias', kind: 'line', color: colors.bone },
-        { label: 'pesagem', kind: 'dot', color: colors.concrete },
+        { label: 'média de 7 dias', kind: 'line', color: colors.accent },
+        { label: 'pesagem', kind: 'dot', color: colors.textMuted },
       ]}
       table={{ headers: ['Dia', 'Pesagem', 'Média 7 dias'], rows: e.map((p) => [shortDay(p.day), kg(p.weight_kg), kg(p.trend_kg)]) }}
     >
       <LineChart
         series={[
-          { label: 'pesagem', color: colors.concrete, kind: 'dot', values: e.map((p) => p.weight_kg) },
-          { label: 'média de 7 dias', color: colors.bone, kind: 'line', values: e.map((p) => p.trend_kg) },
+          { label: 'pesagem', color: colors.textMuted, kind: 'dot', values: e.map((p) => p.weight_kg) },
+          { label: 'média de 7 dias', color: colors.accent, kind: 'line', values: e.map((p) => p.trend_kg) },
         ]}
         xLabels={e.map((p) => shortDay(p.day))}
         format={(v) => decimal(v, 0)}
@@ -210,7 +253,7 @@ function SleepAndHrv({ data }: { data: Progress }) {
             : 'Método RMSSD (variação entre batimentos consecutivos), padrão de cintas e Health Connect.'}
           table={{ headers: ['Dia', 'VFC (ms)'], rows: sameMethod.map((r) => [shortDay(r.day), decimal(r.hrv_ms as number)]) }}
         >
-          <LineChart series={[{ label: 'VFC', color: colors.bone, kind: 'line', values: sameMethod.map((r) => r.hrv_ms) }]}
+          <LineChart series={[{ label: 'VFC', color: colors.accent, kind: 'line', values: sameMethod.map((r) => r.hrv_ms) }]}
             xLabels={sameMethod.map((r) => shortDay(r.day))} format={(v) => decimal(v, 0)} />
         </ChartCard>
       )}
@@ -219,10 +262,11 @@ function SleepAndHrv({ data }: { data: Progress }) {
 }
 
 function ArmorCard({ data }: { data: Progress }) {
-  if (data.armor_cycles.length === 0) return null;
+  // Machine programs carry nothing: an all-zero chart would only be noise.
+  if (!data.armor_cycles.some((c) => c.kg_m > 0)) return null;
   return (
     <ChartCard
-      title="Capacidade de Carga Operacional por ciclo"
+      title="Capacidade de carga por ciclo"
       note="kg·m: quilos carregados × metros percorridos em carregamentos, trenó e barra com lastro."
       table={{ headers: ['Ciclo', 'Início', 'kg·m'], rows: data.armor_cycles.map((c) => [String(c.cycle_index + 1),
         shortDay(c.start), formatKgM(c.kg_m)]) }}
@@ -276,9 +320,9 @@ function AttendanceCard({ data }: { data: Progress }) {
     <ChartCard
       title="Frequência"
       legend={[
-        { label: 'treinou', kind: 'bar', color: colors.bone },
-        { label: 'treino perdido', kind: 'bar', color: colors.amber },
-        { label: 'folga', kind: 'bar', color: colors.seam },
+        { label: 'treinou', kind: 'bar', color: colors.success },
+        { label: 'treino perdido', kind: 'bar', color: colors.warning },
+        { label: 'folga', kind: 'bar', color: colors.surfaceHigh },
       ]}
       table={{ headers: ['Dia', 'Situação'], rows: data.attendance.map((d) => [shortDay(d.day), status(d)]) }}
     >
@@ -296,12 +340,15 @@ function AttendanceCard({ data }: { data: Progress }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.void },
+  root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
-  calendar: { flexDirection: 'row', flexWrap: 'wrap', gap: 2 },
-  cell: { width: 18, height: 18, borderRadius: 3, alignItems: 'center', justifyContent: 'center' },
-  cellDone: { backgroundColor: colors.bone },
-  cellMissed: { borderWidth: 1, borderColor: colors.amber },
-  cellRest: { backgroundColor: colors.seam },
-  cellMark: { color: colors.amber, fontFamily: fonts.monoBold, fontSize: 11, lineHeight: 14 },
+  calendar: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  track: { height: 8, borderRadius: radius.pill, backgroundColor: colors.surfaceHigh, overflow: 'hidden' },
+  band: { position: 'absolute', top: 0, bottom: 0, backgroundColor: colors.border },
+  fill: { height: 8, borderRadius: radius.pill },
+  cell: { width: 18, height: 18, borderRadius: 5, alignItems: 'center', justifyContent: 'center' },
+  cellDone: { backgroundColor: colors.success },
+  cellMissed: { borderWidth: 1.5, borderColor: colors.warning },
+  cellRest: { backgroundColor: colors.surfaceHigh },
+  cellMark: { color: colors.warning, fontWeight: '700', fontSize: 11, lineHeight: 14 },
 });

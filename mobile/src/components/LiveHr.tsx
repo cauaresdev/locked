@@ -5,7 +5,7 @@ import { storedAthlete } from '../storage/db';
 import { colors } from '../theme';
 import { Badge } from './ui';
 
-const ZONE_COLOR = [colors.concrete, colors.concrete, colors.concrete, colors.bone, colors.amber, colors.redText];
+const ZONE_COLOR = [colors.textMuted, colors.textMuted, colors.textMuted, colors.text, colors.warning, colors.danger];
 
 export function zoneOf(bpm: number, hrMax: number | null): number | null {
   if (!hrMax) return null;
@@ -24,9 +24,9 @@ export function LiveHr() {
   }, []);
   if (!connected.hr) return null;
   const bpm = fresh(hr);
-  if (bpm == null) return <Badge label="♥ sem sinal" color={colors.amber} />;
+  if (bpm == null) return <Badge label="FC sem sinal" color={colors.warning} />;
   const zone = zoneOf(bpm, storedAthlete()?.hr_max ?? null);
   return (
-    <Badge label={`♥ ${bpm}/min${zone ? ` · zona ${zone}` : ''}`} color={zone != null ? ZONE_COLOR[zone] : colors.bone} />
+    <Badge label={`♥ ${bpm} bpm${zone ? ` · zona ${zone}` : ''}`} color={zone != null ? ZONE_COLOR[zone] : colors.text} />
   );
 }

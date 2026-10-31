@@ -5,6 +5,7 @@ import {
   emptyProgress,
   itemKey,
   sessionComplete,
+  startingLoad,
   withLastSetUndone,
   withSetLogged,
 } from '../progress';
@@ -28,6 +29,9 @@ const rx = (over: Partial<Prescription>): Prescription => ({
   distance_m: null,
   rest_seconds: null,
   set_role: null,
+  last_set: null,
+  best_e1rm_kg: null,
+  warmup_sets: [],
   tempo: null,
   unilateral: false,
   target_rpe: null,
@@ -156,4 +160,24 @@ describe('undo and swaps', () => {
     expect(view.blocks.find((b) => b.order === 2)!.exercises[0].exercise_id).toBe('swapped');
     expect(applySwaps(session, emptyProgress())).toBe(session);
   });
+});
+
+test('a back-off starts at 80% of the top set actually lifted, then repeats its own load', () => {
+  const block = {
+    order: 2, kind: 'strength', name: 'Principal', duration_minutes: 30, execution_style: 'straight_sets',
+    mandatory_lock: false, rest_seconds: 120,
+    exercises: [
+      rx({ exercise_id: 'bench', set_role: 'top', suggested_load_kg: 100 }),
+      rx({ exercise_id: 'bench', set_role: 'backoff', suggested_load_kg: 80 }),
+      rx({ exercise_id: 'row', suggested_load_kg: 60 }),
+    ],
+  } as Session['blocks'][number];
+  let p = emptyProgress();
+  expect(startingLoad(block, 1, p, {})).toBe(80); // nothing lifted yet: the plan
+  p = withSetLogged(p, '2:0', 'a', { exercise: 'Supino', reps: 5, load_kg: 105, rpe: 8, record: true });
+  expect(startingLoad(block, 1, p, { bench: 105 })).toBe(84); // not the 105 of the top set
+  p = withSetLogged(p, '2:1', 'b', { exercise: 'Supino', reps: 8, load_kg: 82.5, rpe: 7.5, record: false });
+  expect(startingLoad(block, 1, p, { bench: 82.5 })).toBe(82.5);
+  expect(startingLoad(block, 2, p, {})).toBe(60);
+  expect(startingLoad(block, 2, p, { row: 65 })).toBe(65);
 });

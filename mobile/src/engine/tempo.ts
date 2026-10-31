@@ -24,9 +24,12 @@ export interface CadenceState {
   phaseSeconds: number;
 }
 
-// Pulls and hinges start from the stretched position, so the first movement
-// is the concentric even though tempo notation is written eccentric-first.
-const CONCENTRIC_FIRST = new Set(['pull_vertical', 'pull_horizontal', 'hinge']);
+// Pulls, hinges and most machine isolation work (leg extension and curl, flyes) start from the
+// stretched position, so the first movement is the concentric even though tempo notation is
+// written eccentric-first.
+const CONCENTRIC_FIRST = new Set([
+  'pull_vertical', 'pull_horizontal', 'hinge', 'knee_extension', 'knee_flexion', 'chest_fly', 'rear_delt',
+]);
 
 export function phaseOrder(pattern: string): PhaseName[] {
   return CONCENTRIC_FIRST.has(pattern)
