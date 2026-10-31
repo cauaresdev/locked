@@ -1,0 +1,23 @@
+# Render Blueprint (free plan) for the API; the database lives on Neon's free plan.
+# Render: New > Blueprint > this repository. Then paste Neon's connection string into
+# KNIGHTFALL_DATABASE_URL. The free instance sleeps after 15 min idle and takes ~1 min to wake;
+# the app is offline-first, so it just syncs a little later.
+services:
+  - type: web
+    name: knightfall-api
+    runtime: docker
+    plan: free
+    region: virginia  # next to Neon's us-east-1 region: every request makes several database round trips
+    rootDir: backend  # only changes under backend/ trigger a deploy
+    dockerfilePath: ./backend/Dockerfile  # both paths are relative to the repo root
+    dockerContext: ./backend
+    healthCheckPath: /health
+    envVars:
+      - key: KNIGHTFALL_DATABASE_URL
+        sync: false  # set by hand: Neon's postgres:// URL (sslmode=require) works as is
+      - key: KNIGHTFALL_TIMESCALE
+        value: "off"  # Neon's TimescaleDB build lacks compression; a plain table is enough
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"  # only Render's proxy reaches the container
+      - key: PORT
+        value: "8000"

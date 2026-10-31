@@ -1,0 +1,48 @@
+# Production stack for one small VM (Oracle Cloud Always Free, Ampere A1 / arm64, or any Linux box):
+# Postgres + TimescaleDB, the API and Caddy in front with automatic HTTPS (Let's Encrypt).
+#   cp .env.example .env   # fill it in
+#   docker compose up -d --build
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: knightfall
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: knightfall
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knightfall"]
+      interval: 10s
+      retries: 10
+
+  api:
+    build: ../../backend
+    restart: unless-stopped
+    environment:
+      KNIGHTFALL_DATABASE_URL: postgresql+psycopg://knightfall:${POSTGRES_PASSWORD}@db:5432/knightfall
+      # Only Caddy can reach the API (no published port), so its X-Forwarded-For is trusted.
+      FORWARDED_ALLOW_IPS: "*"
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      KNIGHTFALL_HOST: ${KNIGHTFALL_HOST:?set KNIGHTFALL_HOST in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  caddy_data:
