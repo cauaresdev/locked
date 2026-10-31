@@ -25,6 +25,20 @@ INCREMENT_KG: dict[Implement, float] = {
     Implement.TRAP_BAR: 2.5,
     Implement.CABLE: 2.5,
     Implement.MACHINE: 2.5,
+    # Plate-loaded stations jump by a pair of 2.5 kg plates, the smith by a pair of 1.25 kg;
+    # weight stacks mostly by 5 kg.
+    Implement.SMITH: 2.5,
+    Implement.LEG_PRESS: 5.0,
+    Implement.HACK_SQUAT: 5.0,
+    Implement.LEG_EXTENSION: 5.0,
+    Implement.LEG_CURL: 5.0,
+    Implement.CALF_MACHINE: 5.0,
+    Implement.HIP_MACHINE: 5.0,
+    Implement.LAT_PULLDOWN: 5.0,
+    Implement.ROW_MACHINE: 5.0,
+    Implement.CHEST_PRESS: 5.0,
+    Implement.PEC_DECK: 5.0,
+    Implement.SHOULDER_PRESS: 5.0,
     Implement.SLED: 5.0,
     Implement.BODYWEIGHT: 2.5,  # added load (vest / belt)
 }
@@ -87,3 +101,24 @@ def recommend_load(
                 return load_at(e1rm, EXPLOSIVE_PCT_1RM, step, extra)
             return prescribe(e1rm, target_reps, target_rpe, step, extra)
     return suggest_load(ex, last_top_set(records, ex.id), target_rpe)
+
+
+def last_set(records: Iterable[SetRecord], exercise_id: str) -> SetRecord | None:
+    """Heaviest set (then most reps) of the most recent day the exercise was logged."""
+    mine = [r for r in records if r.exercise_id == exercise_id]
+    if not mine:
+        return None
+    last_day = max(r.performed_on for r in mine)
+    return max((r for r in mine if r.performed_on == last_day), key=lambda r: (r.load_kg or 0, r.reps or 0))
+
+
+WARMUP_RAMP = ((0.5, 8), (0.75, 3))  # share of the working load, reps
+
+
+def warmup_ramp(ex: Exercise, working_kg: float | None) -> list[tuple[float, int]]:
+    """Ramp-up sets before a heavy first lift, rounded down to the implement's jump; light loads skip it."""
+    step = INCREMENT_KG.get(ex.implement)
+    if working_kg is None or step is None or ex.implement == Implement.BODYWEIGHT:
+        return []
+    ramp = [(math.floor(round(working_kg * share / step, 6)) * step, reps) for share, reps in WARMUP_RAMP]
+    return [(kg, reps) for kg, reps in ramp if 0 < kg < working_kg]

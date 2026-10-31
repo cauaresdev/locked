@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from conftest import register
 
 from knightfall.catalog import EXERCISES
-from knightfall.domain import Implement, Tier
+from knightfall.domain import MACHINE_STATIONS, Implement, Tier
 from knightfall.generator import CyclePosition, alternatives, generate_session
 from knightfall.tiers import TIERS
 
@@ -177,7 +177,10 @@ def test_equipment_profile_filters_the_chaos_engine(client, auth):
                     assert any("perfil de equipamentos" in n for n in s["notices"]), rx["name"]
     # Back to a full gym.
     r = client.patch(f"/athletes/{a['id']}", json={"equipment": None}, headers=auth).json()
-    assert len(r["equipment"]) == len(Implement)
+    assert set(r["equipment"]) == {i.value for i in Implement} - {"machine"}  # "machine" is legacy-only
+    # A profile saved with the legacy "machine" means every machine station.
+    r = client.patch(f"/athletes/{a['id']}", json={"equipment": ["machine", "dumbbell"]}, headers=auth).json()
+    assert set(r["equipment"]) == {"dumbbell"} | {i.value for i in MACHINE_STATIONS}
 
 
 def test_alternatives_keep_the_pattern_and_skip_what_is_already_in_the_session(client, auth):

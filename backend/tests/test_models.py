@@ -127,3 +127,26 @@ def test_hrv_falls_back_to_last_week_before_a_baseline_exists():
     assert sig is not None and sig.part == 0.0 and "últimos 7 dias" in sig.reason
     assert hrv_signal(_series({0: 42, 1: 70}), D) is None  # too little history
     assert hrv_signal(_series({1: 70, 2: 70, 3: 70}), D) is None  # no reading today
+
+
+def test_every_exercise_has_a_demo_in_the_app():
+    """The app shows photos (exerciseMedia.ts) or written steps (howTo.ts) for every catalog exercise."""
+    import re
+    from pathlib import Path
+
+    from knightfall.catalog import EXERCISES
+
+    engine = Path(__file__).resolve().parents[2] / "mobile" / "src" / "engine"
+    photos = set(re.findall(r"^  (\w+): \[require", (engine / "exerciseMedia.ts").read_text(), re.M))
+    steps = set(re.findall(r"^  (\w+): \[$", (engine / "howTo.ts").read_text(), re.M))
+    assert not (photos | steps) - set(EXERCISES), "demo for an exercise the catalog doesn't have"
+    assert not set(EXERCISES) - (photos | steps), sorted(set(EXERCISES) - (photos | steps))
+
+
+def test_database_urls_from_hosts_get_the_psycopg_driver():
+    from knightfall.db import normalize_url
+
+    assert normalize_url("postgres://u:p@h/db?sslmode=require") == "postgresql+psycopg://u:p@h/db?sslmode=require"
+    assert normalize_url("postgresql://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
+    assert normalize_url("postgresql+psycopg://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
+    assert normalize_url("sqlite:///./x.db") == "sqlite:///./x.db"

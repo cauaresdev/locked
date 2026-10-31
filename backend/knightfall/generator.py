@@ -6,13 +6,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from .catalog import EXERCISES, RxTemplate
+from .catalog import EXERCISES, Exercise, RxTemplate
 from .chaos import DaySelection, Equipment, available, candidates, select_day
 from .domain import (
     Block,
     BlockKind,
     ExecutionStyle,
     Implement,
+    LastSet,
     Modality,
     Mode,
     Pattern,
@@ -21,8 +22,9 @@ from .domain import (
     Session,
     Tier,
 )
-from .progression import recommend_load
+from .progression import last_set, recommend_load
 from .records import SetRecord
+from .strength import e1rm_history
 from .templates import TEMPLATES, Variant
 from .tiers import (
     AMRAP_ROUND_REST_SECONDS,
@@ -41,6 +43,7 @@ TARGET_RPE: dict[Modality, float] = {
 }
 
 RECOVERY_DRILLS = ("worlds_greatest_stretch", "hip_90_90", "t_spine_rotation", "brettzel_stretch")
+RECOVERY_EXTRA_DRILLS = ("spiderman_lunge_stretch", "inchworm")
 
 IMPLEMENT_LABEL: dict[Implement, str] = {
     Implement.BARBELL: "barra",
@@ -48,13 +51,25 @@ IMPLEMENT_LABEL: dict[Implement, str] = {
     Implement.KETTLEBELL: "kettlebell",
     Implement.CABLE: "polia (cabo)",
     Implement.MACHINE: "máquina",
+    Implement.LEG_PRESS: "leg press",
+    Implement.LEG_EXTENSION: "cadeira extensora",
+    Implement.LEG_CURL: "mesa ou cadeira flexora",
+    Implement.SMITH: "smith",
+    Implement.HACK_SQUAT: "hack",
+    Implement.CALF_MACHINE: "máquina de panturrilha",
+    Implement.HIP_MACHINE: "abdutora / adutora",
+    Implement.LAT_PULLDOWN: "puxador (pulldown)",
+    Implement.ROW_MACHINE: "remada sentada (máquina ou remada baixa)",
+    Implement.CHEST_PRESS: "supino na máquina",
+    Implement.PEC_DECK: "voador (peck deck)",
+    Implement.SHOULDER_PRESS: "desenvolvimento na máquina",
     Implement.BODYWEIGHT: "peso corporal",
     Implement.SLED: "trenó",
     Implement.TRAP_BAR: "barra hexagonal (trap bar)",
     Implement.BAND: "elástico",
     Implement.MEDICINE_BALL: "medicine ball",
     Implement.ROLLER: "rolo de liberação miofascial",
-    Implement.ERGOMETER: "ergômetro (bike ou elíptico)",
+    Implement.ERGOMETER: "aparelho de cardio (bike, esteira ou elíptico)",
 }
 
 
@@ -136,6 +151,19 @@ def build_rx(
         suggested_load_kg=recommend_load(ex, history, _target_reps(tpl), rpe, bodyweight_kg, variant[1]),
         intensity=tpl.intensity,
         cues=list(tpl.cues),
+        **history_fields(ex, history),
+    )
+
+
+def history_fields(ex: Exercise, history: Sequence[SetRecord]) -> dict:
+    """What the athlete did last time and the all-time best estimate, for the set logger."""
+    last = last_set(history, ex.id)
+    best = None
+    if ex.implement != Implement.BODYWEIGHT:  # with body mass in it, the "1RM" is not a load to chase
+        best = max((p.e1rm_kg for p in e1rm_history(history, ex.id)), default=None)
+    return dict(
+        last_set=LastSet(on=last.performed_on, load_kg=last.load_kg, reps=last.reps, rpe=last.rpe) if last else None,
+        best_e1rm_kg=best,
     )
 
 
@@ -179,10 +207,12 @@ def missing_equipment_notices(blocks: Sequence[Block], equipment: Equipment) -> 
 
 def _recovery_session(cfg: TierConfig, pos: CyclePosition, readiness: ReadinessSummary | None,
                       equipment: Equipment = None) -> Session:
+    # Without a roller the day is walk + mobility, not a warning about missing gear.
+    roller = available("rumble_roller_full", equipment)
     exercises = [
         build_rx(("easy_walk", Modality.CONDITIONING)),
-        build_rx(("rumble_roller_full", Modality.PREP), duration_seconds=600),
-        *(build_rx((d, Modality.PREP)) for d in RECOVERY_DRILLS),
+        *([build_rx(("rumble_roller_full", Modality.PREP), duration_seconds=600)] if roller else []),
+        *(build_rx((d, Modality.PREP)) for d in RECOVERY_DRILLS + (() if roller else RECOVERY_EXTRA_DRILLS)),
     ]
     blocks = [
         Block(
@@ -253,6 +283,12 @@ def generate_session(
     template_id = cfg.cycle[pos.cycle_day - 1]
     if template_id is None:
         return _recovery_session(cfg, pos, readiness, equipment)
+    if cfg.program == "split":
+        from . import splits
+
+        return splits.generate(cfg, template_id, pos.cycle_index, pos.cycle_day, readiness=readiness,
+                               history=history, bodyweight_kg=bodyweight_kg,
+                               low_readiness_streak=low_readiness_streak, equipment=equipment)
     if cfg.program == "v2":
         from . import brawler_v2
 
@@ -350,6 +386,12 @@ def alternatives(
         raise ValueError("recovery days have no swappable exercises")
     session = generate_session(tier, pos, seed, readiness=readiness, history=history, bodyweight_kg=bodyweight_kg,
                                low_readiness_streak=low_readiness_streak, equipment=equipment)
+    if cfg.program == "split":
+        from . import splits
+
+        sp = splits.params(cfg, pos.cycle_index, readiness, low_readiness_streak)
+        return splits.alternatives(session, template_id, block_order, index, p=sp, history=history,
+                                   bodyweight_kg=bodyweight_kg, equipment=equipment, limit=MAX_ALTERNATIVES)
     if cfg.program == "v2":
         from . import brawler_v2
 
@@ -380,3 +422,23 @@ def alternatives(
         kw = {}
     options = [build_rx(v, history=history, bodyweight_kg=bodyweight_kg, **kw) for v in best.values()]
     return sorted(options, key=lambda rx: rx.name)[:MAX_ALTERNATIVES]
+
+
+def before_start_session(tier: Tier, start: date) -> Session:
+    """A day between picking a weekly program and its first Monday: free, nothing prescribed."""
+    cfg = TIERS[tier]
+    return Session(
+        protocol_id=cfg.protocol_id,
+        tier=cfg.tier,
+        cycle_index=0,
+        cycle_day=1,
+        cycle_length=cfg.cycle_length,
+        cycle_structure=cfg.cycle_structure,
+        is_training_day=False,
+        day_name="Antes do programa",
+        target_duration_minutes=0,
+        rest_cap_seconds=REST_CAP_SECONDS,
+        notices=[f"{cfg.name} começa na segunda, {start.strftime('%d/%m')}. Até lá: descanso, uma caminhada "
+                 "ou um treino livre."],
+        blocks=[],
+    )

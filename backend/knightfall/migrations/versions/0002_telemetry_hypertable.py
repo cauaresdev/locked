@@ -5,6 +5,7 @@ Revises: 0001
 Create Date: 2026-10-15
 """
 
+import os
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -17,7 +18,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def _timescale_available(bind) -> bool:
-    if bind.dialect.name != "postgresql":
+    # KNIGHTFALL_TIMESCALE=off keeps a plain table even where the extension is listed (managed Postgres
+    # such as Neon ships a reduced build; the app never needs TimescaleDB to work).
+    if bind.dialect.name != "postgresql" or os.environ.get("KNIGHTFALL_TIMESCALE", "").lower() == "off":
         return False
     return bool(bind.execute(sa.text(
         "SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb'"

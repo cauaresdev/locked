@@ -24,8 +24,8 @@ from functools import lru_cache
 
 from .catalog import EXERCISES, RxTemplate, distance, per_side, reps, timed
 from .chaos import Equipment, available, candidates, pick
-from .domain import Block, BlockKind, ExecutionStyle, Modality, Prescription, ReadinessSummary, Session
-from .progression import INCREMENT_KG, last_top_set
+from .domain import Block, BlockKind, ExecutionStyle, Modality, Prescription, ReadinessSummary, Session, WarmupSet
+from .progression import INCREMENT_KG, last_top_set, warmup_ramp
 from .records import SetRecord
 from .templates import Variant
 from .tiers import DELOAD_RPE_DELTA, DELOAD_SET_MULTIPLIER, REST_DAY, V2_REST_CAP_SECONDS, TierConfig
@@ -307,6 +307,9 @@ def _rx(it: Item, v: Variant, *, block: BlockKind, p: Params, history: Sequence[
         bodyweight_kg=bodyweight_kg,
     )
     update: dict = {"set_role": it.role}
+    if it.role == "top":
+        update["warmup_sets"] = [WarmupSet(load_kg=kg, reps=n)
+                                 for kg, n in warmup_ramp(EXERCISES[v[0]], rx.suggested_load_kg)]
     if v[0] == "back_squat" and not p.deload and (last := last_top_set(history, v[0])) and last.load_kg:
         update["suggested_load_kg"] = last.load_kg + SQUAT_STEP_KG
     return rx.model_copy(update=update)

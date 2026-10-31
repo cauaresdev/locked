@@ -8,11 +8,13 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from .. import routine
 from ..catalog import EXERCISES
 from ..domain import Implement, Modality, OutModel, Tier
 from ..nutrition import Category, Dairy, Meal
 
 Sex = Literal["male", "female"]
+NutritionGoal = Literal["cut", "maintain", "bulk", "cycle"]  # cycle: carb cycling by training day
 
 MIN_DAY, MAX_DAY = date(2000, 1, 1), date(2100, 12, 31)
 
@@ -69,6 +71,8 @@ class AuthOut(OutModel):
 
 class TierOut(OutModel):
     tier: Tier
+    name: str
+    description: str
     protocol_id: str
     cycle_structure: str
     cycle_length: int
@@ -88,6 +92,16 @@ class ProfileFields(InModel):
     early_bird_enabled: bool | None = None
     wake_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     equipment: list[Implement] | None = None  # implements available; None/omitted = full gym
+    sleep_target_hours: float | None = Field(default=None, ge=6, le=10)
+    nutrition_goal: NutritionGoal | None = None
+    routine_items: list[str] | None = None  # optional routine items switched on; None/omitted = keep
+
+    @field_validator("routine_items")
+    @classmethod
+    def _known_items(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None and (unknown := set(v) - set(routine.OPTIONAL_IDS)):
+            raise ValueError(f"unknown routine items: {sorted(unknown)}")
+        return v
 
     @field_validator("timezone")
     @classmethod
@@ -138,6 +152,9 @@ class AthleteOut(OutModel):
     waiver_accepted_at: datetime | None
     equipment: list[Implement]
     health_consent_at: datetime | None
+    sleep_target_hours: float
+    nutrition_goal: NutritionGoal
+    routine_items: list[str]  # every item shown, required ones included
     cycle_length: int
     cycle_structure: str
 
@@ -254,9 +271,19 @@ class AttendanceDayOut(OutModel):
     trained: bool
 
 
+class MuscleVolumeOut(OutModel):
+    muscle: str
+    label: str
+    sets: int  # hard sets in the 7 days ending today
+    previous_sets: int  # the 7 days before those
+    target_min: int
+    target_max: int
+
+
 class ProgressOut(OutModel):
     days: int
     strength: list[StrengthOut]
+    muscle_volume: list[MuscleVolumeOut]
     weight: WeightOut
     readiness: list[ReadinessDayOut]
     armor_cycles: list[ArmorCycleOut]
@@ -351,6 +378,8 @@ class FoodEntryOut(OutModel):
 class NutritionDayOut(OutModel):
     day: date
     is_training_day: bool
+    goal: NutritionGoal
+    day_kind: Literal["high", "medium", "rest"] | None  # carb cycling only: the day's carb band
     lbm_kg: float
     lbm_source: Literal["body_fat", "boer", "assumed"]
     kcal_floor: float
@@ -425,3 +454,99 @@ class EarlyBirdOut(OutModel):
     zone_bpm: tuple[int, int] | None
     avg_hr: float | None
     streak: int
+
+
+# --- Batfleck routine ----------------------------------------------------------
+
+
+class RoutineItemOut(OutModel):
+    id: str
+    section: Literal["morning", "day", "night"]
+    kind: Literal["check", "water"]
+    title: str
+    detail: str | None
+    done: bool
+    auto: bool  # ticked by the app's own data (sleep, Early Bird, logged sets, supplements)
+    value: float | None  # water: ml so far
+    target: float | None  # water: ml for the day
+
+
+class RoutineDayOut(OutModel):
+    day: date
+    done: int
+    total: int
+    complete: bool
+
+
+class RoutineOptionOut(OutModel):
+    id: str
+    title: str
+    enabled: bool
+
+
+class RoutineOut(OutModel):
+    day: date
+    wake_time: str
+    bedtime: str
+    screens_off: str
+    sleep_target_hours: float
+    water_target_ml: int
+    items: list[RoutineItemOut]
+    done: int
+    total: int
+    complete: bool
+    streak: int
+    best_streak: int
+    week: list[RoutineDayOut]  # the 7 days ending on `day`, oldest first
+    options: list[RoutineOptionOut]
+
+
+class RoutineCheckIn(InModel):
+    done: bool | None = None
+    value: float | None = Field(default=None, ge=0, le=15000)  # water, ml
+
+    @model_validator(mode="after")
+    def _one(self) -> RoutineCheckIn:
+        if self.done is None and self.value is None:
+            raise ValueError("send done or value")
+        return self
+
+
+# --- body measurements ------------------------------------------------------------
+
+MEASUREMENT_SITES = {
+    "neck": "Pescoço",
+    "shoulders": "Ombros",
+    "chest": "Peito",
+    "arm": "Braço (contraído)",
+    "waist": "Cintura (umbigo)",
+    "hips": "Quadril",
+    "thigh": "Coxa",
+    "calf": "Panturrilha",
+}
+
+
+class MeasurementsIn(InModel):
+    day: Day
+    # cm per site; null removes that day's value
+    values: dict[str, Annotated[float, Field(ge=10, le=250)] | None] = Field(min_length=1, max_length=8)
+
+    @field_validator("values")
+    @classmethod
+    def _known_sites(cls, v: dict) -> dict:
+        if unknown := set(v) - set(MEASUREMENT_SITES):
+            raise ValueError(f"unknown sites: {sorted(unknown)}")
+        return v
+
+
+class MeasurementSiteOut(OutModel):
+    site: str
+    label: str
+    latest_cm: float | None
+    latest_day: date | None
+    change_cm: float | None  # latest minus the first reading in the window
+    history: list[tuple[date, float]]
+
+
+class MeasurementsOut(OutModel):
+    sites: list[MeasurementSiteOut]

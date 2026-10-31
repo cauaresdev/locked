@@ -13,9 +13,11 @@ from sqlalchemy.exc import IntegrityError
 from ..db import (
     Athlete,
     AuthToken,
+    BodyMeasurement,
     EarlyBirdRun,
     FoodEntry,
     ReadinessEntry,
+    RoutineCheck,
     SetLog,
     SupplementIntake,
     TelemetrySample,
@@ -101,7 +103,8 @@ def me(user: CurrentUser, s: Db) -> AthleteOut | None:
 
 # --- LGPD: data portability and erasure ------------------------------------------
 
-ATHLETE_TABLES = (SetLog, ReadinessEntry, TelemetrySample, FoodEntry, SupplementIntake, EarlyBirdRun, WeighIn)
+ATHLETE_TABLES = (SetLog, ReadinessEntry, TelemetrySample, FoodEntry, SupplementIntake, EarlyBirdRun, WeighIn,
+                  RoutineCheck, BodyMeasurement)
 
 
 def _json(v) -> str:
