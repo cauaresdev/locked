@@ -160,8 +160,19 @@ def readiness_for(
             )
         ).all())
         hrv = readiness.hrv_signal(series, day)
+    rhr = None
+    if entry is not None and entry.resting_hr is not None:
+        lo = day - timedelta(days=readiness.RHR_BASELINE_DAYS)
+        if history is not None:
+            rhr_series = {d: e.resting_hr for d, e in history.items() if lo <= d <= day and e.resting_hr is not None}
+        else:
+            rhr_series = dict(s.execute(select(ReadinessEntry.day, ReadinessEntry.resting_hr).where(
+                ReadinessEntry.athlete_id == a.id, ReadinessEntry.day <= day, ReadinessEntry.day >= lo,
+                ReadinessEntry.resting_hr.is_not(None))).all())
+        rhr = readiness.rhr_signal(rhr_series, day)
     return readiness.score(readiness.ReadinessInputs(
         hrv=hrv,
+        rhr=rhr,
         sleep_hours=entry.sleep_hours if entry else None,
         soreness=entry.soreness if entry else None,
         lumbar_acwr=lumbar,
