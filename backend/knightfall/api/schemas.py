@@ -94,6 +94,7 @@ class ProfileFields(InModel):
     equipment: list[Implement] | None = None  # implements available; None/omitted = full gym
     sleep_target_hours: float | None = Field(default=None, ge=6, le=10)
     steps_target: int | None = Field(default=None, ge=2000, le=30000)
+    training_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")  # null clears it
     nutrition_goal: NutritionGoal | None = None
     routine_items: list[str] | None = None  # optional routine items switched on; None/omitted = keep
 
@@ -155,6 +156,7 @@ class AthleteOut(OutModel):
     health_consent_at: datetime | None
     sleep_target_hours: float
     steps_target: int
+    training_time: str | None
     nutrition_goal: NutritionGoal
     routine_items: list[str]  # every item shown, required ones included
     cycle_length: int

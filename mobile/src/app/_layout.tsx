@@ -39,11 +39,11 @@ export default function RootLayout() {
     [router],
   );
 
-  // Tapping the wake alarm opens Early Bird; a routine reminder opens the routine.
+  // Tapping the wake alarm opens Early Bird; a routine reminder the routine; a training reminder Hoje.
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((r) => {
       const route = r.notification.request.content.data?.route;
-      if (route === '/early-bird' || route === '/routine') router.push(route);
+      if (route === '/early-bird' || route === '/routine' || route === '/today') router.push(route);
     });
     return () => sub.remove();
   }, [router]);

@@ -150,3 +150,15 @@ def test_steps_come_from_the_watch_and_follow_the_target(client, auth):
     # Water keeps its own cap, and a plain check takes no value.
     assert tick(client, auth, a, today(), "water", value=20000).status_code == 422
     assert tick(client, auth, a, today(), "sunlight", value=3).status_code == 422
+
+
+def test_training_time_is_kept_and_shown_on_the_training_item(client, auth):
+    a = make_athlete(client, auth)  # full body: day 1 trains
+    assert a["training_time"] is None
+    r = client.patch(f"/athletes/{a['id']}", json={"training_time": "18:30"}, headers=auth)
+    assert r.json()["training_time"] == "18:30"
+    item = next(i for i in get(client, auth, a, today())["items"] if i["id"] == "training")
+    assert item["title"] == "Treino do dia · 18:30"
+    assert client.patch(f"/athletes/{a['id']}", json={"training_time": "25:00"}, headers=auth).status_code == 422
+    cleared = client.patch(f"/athletes/{a['id']}", json={"training_time": None}, headers=auth).json()
+    assert cleared["training_time"] is None

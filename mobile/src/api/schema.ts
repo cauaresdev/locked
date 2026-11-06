@@ -759,6 +759,8 @@ export interface components {
             tier: components["schemas"]["Tier"];
             /** Timezone */
             timezone?: string | null;
+            /** Training Time */
+            training_time?: string | null;
             /** Wake Time */
             wake_time?: string | null;
         };
@@ -811,6 +813,8 @@ export interface components {
             tier: components["schemas"]["Tier"];
             /** Timezone */
             timezone: string;
+            /** Training Time */
+            training_time: string | null;
             /** Waiver Accepted At */
             waiver_accepted_at: string | null;
             /** Wake Time */
@@ -852,6 +856,8 @@ export interface components {
             tier?: components["schemas"]["Tier"] | null;
             /** Timezone */
             timezone?: string | null;
+            /** Training Time */
+            training_time?: string | null;
             /** Wake Time */
             wake_time?: string | null;
         };

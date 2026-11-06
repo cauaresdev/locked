@@ -36,7 +36,8 @@ def day_type(a: Athlete, day: date) -> routine.DayType:
 
 def _settings(a: Athlete) -> routine.Settings:
     return routine.Settings(a.wake_time, a.sleep_target_hours, a.bodyweight_kg,
-                            routine.enabled_items(a.routine_items), a.nutrition_goal, a.steps_target)
+                            routine.enabled_items(a.routine_items), a.nutrition_goal, a.steps_target,
+                            a.training_time)
 
 
 def _routine(s: Db, a: Athlete, day: date) -> RoutineOut:

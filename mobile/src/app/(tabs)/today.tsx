@@ -14,6 +14,7 @@ import { BUDGET_OPTIONS, estimateMinutes, fitToBudget } from '../../engine/timeB
 import { addDays, cycleStructureLabel, decimal, formatKgM, isoDay, parseDecimal as num, rxSummary } from '../../engine/format';
 import { PROGRAM_NAME } from '../../engine/programs';
 import { syncNight, syncSteps } from '../../health';
+import { refreshTrainingReminders } from '../../reminders';
 import {
   cachedRange,
   cachedRoutine,
@@ -93,7 +94,11 @@ export default function Today() {
       const fetchSession = () => loadSession(athleteId, today).catch(() => null);
       // Everything that does not depend on uploads goes out at once.
       const others = Promise.all([
-        prefetchSchedule(athleteId, today, storedAthlete()?.cycle_start ?? today),
+        prefetchSchedule(athleteId, today, storedAthlete()?.cycle_start ?? today).then((ok) => {
+          const a = storedAthlete();
+          if (a) refreshTrainingReminders(a, today).catch(() => {}); // re-planned from the fresh schedule
+          return ok;
+        }),
         api.armorLoad(athleteId, today).catch(() => null),
         api.weight(athleteId, 14).catch(() => null),
         refreshAthlete(athleteId),

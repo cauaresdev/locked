@@ -14,6 +14,7 @@ import {
   Checkbox,
   Chip,
   Dots,
+  Field,
   ListRow,
   Panel,
   ProgressBar,
@@ -23,9 +24,10 @@ import {
   T,
   TextLink,
 } from '../../components/ui';
-import { isoDay } from '../../engine/format';
+import { isoDay, parseTime } from '../../engine/format';
 import { routineSummary, SECTION_TITLE, withCheck } from '../../engine/routine';
-import { cancelRoutineReminders, scheduleRoutineReminders } from '../../notifications';
+import { cancelRoutineReminders, requestNotificationPermission, scheduleRoutineReminders } from '../../notifications';
+import { refreshTrainingReminders } from '../../reminders';
 import {
   cachedRoutine,
   dropRoutineCheck,
@@ -131,6 +133,10 @@ export default function RoutineScreen() {
       setError(null);
       // New sleep target: bedtime and screens-off move, so do their reminders.
       if (reminders) await scheduleRoutineReminders(a.wake_time, r.screens_off, r.bedtime);
+      if ('training_time' in body) {
+        if (a.training_time) await requestNotificationPermission();
+        await refreshTrainingReminders(a, day);
+      }
     } catch {
       setError('Não salvou: sem conexão. Tente de novo quando a internet voltar.');
     }
@@ -260,6 +266,14 @@ export default function RoutineScreen() {
               {editing ? (
                 <Panel style={{ gap: space.lg }}>
                   <View style={{ gap: space.sm }}>
+                    <T variant="label">Horário de treino</T>
+                    <TrainingTime value={athlete.training_time ?? null}
+                      onSave={(t) => saveProfile({ training_time: t })} />
+                    <T variant="hint">
+                      Nos dias de treino: aviso da refeição pré-treino 1 h 30 antes e do treino 15 min antes.
+                    </T>
+                  </View>
+                  <View style={{ gap: space.sm }}>
                     <T variant="label">Meta de passos</T>
                     <Row style={{ flexWrap: 'wrap', gap: space.sm }}>
                       {STEP_TARGETS.map((n) => (
@@ -317,6 +331,19 @@ export default function RoutineScreen() {
         }}
       />
     </SafeAreaView>
+  );
+}
+
+function TrainingTime({ value, onSave }: { value: string | null; onSave: (t: string | null) => void }) {
+  const [text, setText] = useState(value ?? '');
+  const parsed = parseTime(text);
+  return (
+    <Row style={{ alignItems: 'flex-end' }}>
+      <Field label="HH:MM" value={text} onChangeText={setText} placeholder="18:00" keyboardType="numbers-and-punctuation"
+        maxLength={5} />
+      <Button tone="secondary" label="Salvar" disabled={!parsed || parsed === value} onPress={() => onSave(parsed)} />
+      {value && <Button tone="secondary" label="Remover" onPress={() => { setText(''); onSave(null); }} />}
+    </Row>
   );
 }
 

@@ -165,6 +165,7 @@ class Settings:
     enabled: frozenset[str]
     goal: str = "cut"
     steps_target: int = DEFAULT_STEPS_TARGET
+    training_time: str | None = None  # HH:MM
 
 
 def _fmt_h(h: float) -> str:
@@ -225,6 +226,8 @@ def items_for(cfg: Settings, data: DayData, checks: Mapping[str, Check]) -> list
                 if data.day_type == "rest":
                     continue
                 title = "Treino do dia" if data.day_type == "training" else "Recuperação ativa"
+                if cfg.training_time:
+                    title += f" · {cfg.training_time}"
                 add("training", title, "Marca sozinho quando você registra séries", data.trained)
             case "supplements":
                 total = data.supplements_total

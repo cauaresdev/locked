@@ -70,6 +70,7 @@ def athlete_out(a: Athlete) -> AthleteOut:
         health_consent_at=a.health_consent_at,
         sleep_target_hours=a.sleep_target_hours,
         steps_target=a.steps_target,
+        training_time=a.training_time,
         nutrition_goal=a.nutrition_goal,  # type: ignore[arg-type]
         routine_items=sorted(routine.enabled_items(a.routine_items)),
         cycle_length=cfg.cycle_length,

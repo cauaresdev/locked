@@ -182,3 +182,74 @@ export async function scheduleRoutineReminders(wake: string, screensOff: string,
 export async function cancelRoutineReminders(): Promise<void> {
   await Promise.all(ROUTINE_IDS.map((id) => Notifications.cancelScheduledNotificationAsync(id).catch(() => {})));
 }
+
+// --- training-day reminders ---------------------------------------------------------
+
+const TRAINING_PREFIX = 'training-';
+export const PRE_MEAL_MINUTES = 90; // a mixed meal 1-2 h before lifting
+export const TRAINING_HEADS_UP_MINUTES = 15;
+export const TRAINING_REMINDER_DAYS = 7;
+
+export interface PlannedReminder {
+  id: string;
+  date: Date;
+  title: string;
+  body: string;
+}
+
+/**
+ * Pre-workout meal (90 min before) and a heads-up (15 min before) on each upcoming training day, from the
+ * cached schedule. Rest and recovery days get nothing; reminders already in the past are skipped.
+ */
+export function trainingReminderPlan(
+  trainingTime: string,
+  sessions: { day: string; is_training_day: boolean; day_name: string; target_duration_minutes: number }[],
+  now: Date = new Date(),
+): PlannedReminder[] {
+  const at = minutesOf(trainingTime);
+  const out: PlannedReminder[] = [];
+  for (const s of sessions) {
+    if (!s.is_training_day) continue;
+    const [y, m, d] = s.day.split('-').map(Number);
+    const start = new Date(y, m - 1, d, Math.floor(at / 60), at % 60);
+    const meal = new Date(+start - PRE_MEAL_MINUTES * 60_000);
+    const go = new Date(+start - TRAINING_HEADS_UP_MINUTES * 60_000);
+    if (meal > now) {
+      out.push({ id: `${TRAINING_PREFIX}${s.day}-meal`, date: meal, title: 'Refeição pré-treino',
+        body: `Treino às ${trainingTime}: carboidrato e proteína agora, e 500 ml de água.` });
+    }
+    if (go > now) {
+      out.push({ id: `${TRAINING_PREFIX}${s.day}-go`, date: go, title: `Treino em ${TRAINING_HEADS_UP_MINUTES} min`,
+        body: `${s.day_name} · cerca de ${s.target_duration_minutes} min. Aqueça e abra o app.` });
+    }
+  }
+  return out;
+}
+
+export async function requestNotificationPermission(): Promise<boolean> {
+  await ensureRoutineChannel(); // Android 13+ only prompts once a channel exists
+  const perm = await Notifications.requestPermissionsAsync();
+  return perm.granted;
+}
+
+export async function cancelTrainingReminders(): Promise<void> {
+  const all = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
+  await Promise.all(all.filter((n) => n.identifier.startsWith(TRAINING_PREFIX))
+    .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier).catch(() => {})));
+}
+
+/** Replaces the scheduled training reminders. Never prompts: false when notifications are not allowed. */
+export async function scheduleTrainingReminders(plan: PlannedReminder[]): Promise<boolean> {
+  const perm = await Notifications.getPermissionsAsync();
+  if (!perm.granted) return false;
+  await ensureRoutineChannel();
+  await cancelTrainingReminders();
+  for (const r of plan) {
+    await Notifications.scheduleNotificationAsync({
+      identifier: r.id,
+      content: { title: r.title, body: r.body, data: { route: '/today' } },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: r.date, channelId: ROUTINE_CHANNEL },
+    });
+  }
+  return true;
+}
