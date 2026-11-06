@@ -43,7 +43,9 @@ export default function RootLayout() {
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((r) => {
       const route = r.notification.request.content.data?.route;
-      if (route === '/early-bird' || route === '/routine' || route === '/today') router.push(route);
+      if (route === '/early-bird' || route === '/routine' || route === '/today' || route === '/progress') {
+        router.push(route);
+      }
     });
     return () => sub.remove();
   }, [router]);

@@ -278,6 +278,20 @@ export default function Today() {
 
             {routine && <RoutineCard routine={routine} onPress={() => router.navigate('/routine')} />}
 
+            {/* Sunday and Monday: the week just closed is worth a look before the next one starts. */}
+            {[0, 1].includes(new Date().getDay()) && (
+              <Pressable onPress={() => router.navigate('/progress')} accessibilityRole="button"
+                accessibilityLabel="Abrir a revisão da semana">
+                <Panel style={{ gap: space.xs }}>
+                  <Row style={{ justifyContent: 'space-between' }}>
+                    <T variant="title">Revisão da semana</T>
+                    <Icon name="chevron-right" size={18} color={colors.textFaint} />
+                  </Row>
+                  <T variant="hint">Treinos, sono, força e peso dos últimos 7 dias, e o que ajustar.</T>
+                </Panel>
+              </Pressable>
+            )}
+
             {session.notices.map((n) => (
               <Panel key={n} accent={colors.warning}><T color={colors.warning}>{n}</T></Panel>
             ))}

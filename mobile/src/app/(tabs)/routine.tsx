@@ -254,7 +254,8 @@ export default function RoutineScreen() {
             <Section title="Lembretes">
               <Panel style={{ gap: space.md }}>
                 <T variant="hint">
-                  Água três vezes ao dia, telas desligadas às {routine.screens_off} e cama às {routine.bedtime}.
+                  Água três vezes ao dia, telas desligadas às {routine.screens_off}, cama às {routine.bedtime} e a
+                  revisão da semana no domingo.
                 </T>
                 <Button tone={reminders ? 'secondary' : 'primary'} icon="bell"
                   label={reminders ? 'Desligar lembretes' : 'Ativar lembretes'} onPress={toggleReminders} />

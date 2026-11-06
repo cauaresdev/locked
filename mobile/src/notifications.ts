@@ -125,6 +125,9 @@ export async function cancelEarlyBird(): Promise<void> {
 
 const ROUTINE_CHANNEL = 'routine_v1';
 const ROUTINE_IDS = ['routine-water-1', 'routine-water-2', 'routine-water-3', 'routine-screens', 'routine-bed'];
+const REVIEW_ID = 'routine-review';
+const SUNDAY = 1; // expo-notifications weekdays: 1 = Sunday
+const REVIEW_BEFORE_SCREENS_MIN = 90;
 
 async function ensureRoutineChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
@@ -176,11 +179,21 @@ export async function scheduleRoutineReminders(wake: string, screensOff: string,
       },
     });
   }
+  // Sunday, before the evening wind-down: the week's review is ready on Progresso.
+  const t = (((minutesOf(screensOff) - REVIEW_BEFORE_SCREENS_MIN) % 1440) + 1440) % 1440;
+  await Notifications.scheduleNotificationAsync({
+    identifier: REVIEW_ID,
+    content: { title: 'Revisão da semana', body: 'Treinos, sono, peso e o que ajustar na próxima semana.',
+      data: { route: '/progress' } },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.WEEKLY, weekday: SUNDAY, hour: Math.floor(t / 60),
+      minute: t % 60, channelId: ROUTINE_CHANNEL },
+  });
   return true;
 }
 
 export async function cancelRoutineReminders(): Promise<void> {
-  await Promise.all(ROUTINE_IDS.map((id) => Notifications.cancelScheduledNotificationAsync(id).catch(() => {})));
+  await Promise.all([...ROUTINE_IDS, REVIEW_ID].map((id) =>
+    Notifications.cancelScheduledNotificationAsync(id).catch(() => {})));
 }
 
 // --- training-day reminders ---------------------------------------------------------

@@ -9,8 +9,9 @@ import { BarChart, ChartCard, LineChart, StatTile, type Bar } from '../../compon
 import { MeasurementsCard } from '../../components/Measurements';
 import { Badge, Chip, Panel, Row, ScreenHeader, T } from '../../components/ui';
 import { shortDay } from '../../engine/chart';
-import { decimal, formatKgM } from '../../engine/format';
-import { storedAthlete, storedProgressReport, storeProgressReport } from '../../storage/db';
+import { decimal, formatKgM, isoDay } from '../../engine/format';
+import { weeklyReview, type Goal } from '../../engine/review';
+import { cachedRoutine, storedAthlete, storedProgressReport, storeProgressReport } from '../../storage/db';
 import { colors, levelColor, radius, space } from '../../theme';
 
 const RANGES = [30, 60, 90] as const;
@@ -80,6 +81,7 @@ export default function ProgressScreen() {
           <T color={colors.textMuted}>{loading ? 'Carregando…' : 'Sem dados ainda. Abra com conexão.'}</T>
         ) : (
           <View style={{ gap: space.lg, opacity: loading ? 0.6 : 1 }}>
+            <ReviewCard data={data} />
             <Summary data={data} />
             <StrengthCard data={data} lift={lift} onLift={setLift} />
             <MuscleVolumeCard data={data} />
@@ -94,6 +96,47 @@ export default function ProgressScreen() {
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/** The last 7 days in a few numbers and at most three things to change. */
+function ReviewCard({ data }: { data: Progress }) {
+  const athlete = storedAthlete();
+  if (!athlete) return null;
+  const today = isoDay();
+  const review = weeklyReview(data, {
+    today,
+    sleepTargetHours: athlete.sleep_target_hours,
+    goal: athlete.nutrition_goal as Goal,
+    bedtime: cachedRoutine(today)?.bedtime,
+  });
+  if (!review.stats.length) return null;
+  return (
+    <Panel style={{ gap: space.md }}>
+      <View style={{ gap: 2 }}>
+        <T variant="title">Revisão da semana</T>
+        <T variant="label">{shortDay(review.from)} a {shortDay(review.to)}</T>
+      </View>
+      <View style={{ gap: space.xs }}>
+        {review.stats.map((s) => (
+          <Row key={s.label} style={{ justifyContent: 'space-between' }}>
+            <T variant="label">{s.label}</T>
+            <T variant="label" color={s.ok === false ? colors.warning : s.ok ? colors.success : colors.text}>
+              {s.value}
+            </T>
+          </Row>
+        ))}
+      </View>
+      <View style={{ gap: space.sm }}>
+        <T variant="label" color={colors.text}>Para a próxima semana</T>
+        {review.actions.map((a, i) => (
+          <Row key={i} style={{ alignItems: 'flex-start' }}>
+            <T variant="label" color={colors.accent}>{i + 1}.</T>
+            <T variant="hint" style={{ flex: 1 }}>{a}</T>
+          </Row>
+        ))}
+      </View>
+    </Panel>
   );
 }
 
