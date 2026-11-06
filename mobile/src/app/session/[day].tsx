@@ -409,6 +409,7 @@ export default function SessionScreen() {
                           rx={rx}
                           setNumber={doneSets + 1}
                           defaultLoad={startingLoad(block, i, progress, lastLoad)}
+                          previous={progress.sets?.[key]?.at(-1) ?? null}
                           prep={block.kind === 'prep'}
                           onLog={(r) => logSet(block, i, rx, r)}
                         />

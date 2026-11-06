@@ -150,3 +150,13 @@ def test_database_urls_from_hosts_get_the_psycopg_driver():
     assert normalize_url("postgresql://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
     assert normalize_url("postgresql+psycopg://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
     assert normalize_url("sqlite:///./x.db") == "sqlite:///./x.db"
+
+
+def test_last_top_set_prefers_the_rated_set_at_the_top_load():
+    from knightfall.progression import last_top_set
+
+    day = date(2026, 3, 2)
+    sets = [SetRecord(day, "leg_press", reps=10, load_kg=200), SetRecord(day, "leg_press", reps=10, load_kg=200),
+            SetRecord(day, "leg_press", reps=9, load_kg=200, rpe=9)]
+    top = last_top_set(sets, "leg_press")
+    assert top is not None and top.rpe == 9  # only the last set is rated: that one moves the load

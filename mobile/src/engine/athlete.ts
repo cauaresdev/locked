@@ -63,3 +63,20 @@ export function sessionSummary(sets: LoggedSet[]): { sets: number; volumeKg: num
   const records = [...new Set(sets.filter((s) => s.record).map((s) => s.exercise))];
   return { sets: sets.length, volumeKg: Math.round(volumeKg), records };
 }
+
+/**
+ * Effort is required on the last set of an exercise only: the load suggestion and the 1RM estimate use the
+ * hardest set of the day, which is the last one. Earlier sets may still be rated.
+ */
+export function rpeRequired(rx: { target_rpe: number | null; sets: number }, setNumber: number): boolean {
+  return rx.target_rpe != null && setNumber >= rx.sets;
+}
+
+/** "80 kg × 10" for the set to repeat; null when there is nothing to repeat. */
+export function repeatLabel(previous: LoggedSet, withLoad: boolean): string | null {
+  const parts = [
+    withLoad && previous.load_kg != null ? `${String(previous.load_kg).replace('.', ',')} kg` : null,
+    previous.reps != null ? `× ${previous.reps}` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' ') : null;
+}
