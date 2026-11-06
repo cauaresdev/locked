@@ -282,7 +282,8 @@ export async function clearLocalData(): Promise<void> {
       `),
     ),
   );
-  for (const key of [ATHLETE_KEY, DEVICES_KEY, HEALTH_KEY, PROGRESS_KEY, ROUTINE_KEY, REMINDERS_KEY, ROUTINE_OUTBOX_KEY]) {
+  for (const key of [ATHLETE_KEY, DEVICES_KEY, HEALTH_KEY, PROGRESS_KEY, ROUTINE_KEY, REMINDERS_KEY, ROUTINE_OUTBOX_KEY,
+    BUDGET_KEY]) {
     Storage.removeItemSync(key);
   }
   athleteMemo = undefined;
@@ -297,6 +298,7 @@ const OWNER_KEY = 'local_owner';
 const ROUTINE_KEY = 'routine_day';
 const REMINDERS_KEY = 'routine_reminders';
 const ROUTINE_OUTBOX_KEY = 'routine_outbox';
+const BUDGET_KEY = 'time_budget';
 
 export type DeviceRole = 'hr' | 'bike';
 export type SavedDevices = Partial<Record<DeviceRole, { id: string; name: string }>>;
@@ -360,6 +362,19 @@ export function removeRoutineCheck(check: PendingRoutineCheck): void {
 export function dropRoutineCheck(day: string, item: string): void {
   Storage.setItemSync(ROUTINE_OUTBOX_KEY, JSON.stringify(pendingRoutineChecks().filter((c) => !sameCheck(c, { day, item }))));
 }
+
+/** Minutes the athlete has for today's session ("Tenho só X minutos"); null = the full session. */
+export function timeBudget(day: string): number | null {
+  const raw = Storage.getItemSync(BUDGET_KEY);
+  const b = raw ? (JSON.parse(raw) as { day: string; minutes: number }) : null;
+  return b?.day === day ? b.minutes : null;
+}
+
+export function setTimeBudget(day: string, minutes: number | null): void {
+  if (minutes == null) Storage.removeItemSync(BUDGET_KEY);
+  else Storage.setItemSync(BUDGET_KEY, JSON.stringify({ day, minutes }));
+}
+
 export function routineRemindersEnabled(): boolean {
   return Storage.getItemSync(REMINDERS_KEY) === '1';
 }

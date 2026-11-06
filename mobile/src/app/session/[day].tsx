@@ -36,7 +36,8 @@ import { useCountdown } from '../../hooks/useCountdown';
 import { useCues } from '../../hooks/useCues';
 import { api } from '../../api/client';
 import { openExactAlarmSettings, prepareRestAlerts, scheduleRestAlert } from '../../notifications';
-import { cachedSession, enqueueLogs, loadProgress, saveProgress, storedAthlete, undoLog } from '../../storage/db';
+import { cachedSession, enqueueLogs, loadProgress, saveProgress, storedAthlete, timeBudget, undoLog } from '../../storage/db';
+import { fitToBudget } from '../../engine/timeBudget';
 import { flushAll, loadSession, prefetchSchedule } from '../../sync';
 import { colors, radius, space } from '../../theme';
 
@@ -121,7 +122,7 @@ export default function SessionScreen() {
         const cached = await cachedSession(day);
         const s = cached ?? (athleteId ? (await loadSession(athleteId, day)).session : null);
         if (!s) throw new Error('no session');
-        setSession(s);
+        setSession(fitToBudget(s, timeBudget(day)).session); // "Tenho só X minutos", chosen on Hoje
         const p = await loadProgress(day);
         progressRef.current = p;
         setProgress(p);

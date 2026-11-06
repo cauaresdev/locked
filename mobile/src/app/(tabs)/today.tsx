@@ -7,9 +7,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../api/client';
 import type { ArmorLoad, Routine, Session, StrengthEntry, Weight } from '../../api/types';
 import { LiveHr } from '../../components/LiveHr';
-import { Badge, Button, Divider, Dots, Field, Panel, Row, ScreenHeader, Section, T, TextLink } from '../../components/ui';
+import { Badge, Button, Chip, Divider, Dots, Field, Panel, Row, ScreenHeader, Section, T, TextLink } from '../../components/ui';
 import { Icon } from '../../components/Icon';
 import { routineSummary } from '../../engine/routine';
+import { BUDGET_OPTIONS, estimateMinutes, fitToBudget } from '../../engine/timeBudget';
 import { addDays, cycleStructureLabel, decimal, formatKgM, isoDay, parseDecimal as num, rxSummary } from '../../engine/format';
 import { PROGRAM_NAME } from '../../engine/programs';
 import { syncNight } from '../../health';
@@ -23,9 +24,11 @@ import {
   pendingCount,
   pendingTotal,
   rejectedCount,
+  setTimeBudget,
   storeAthlete,
   storedAthlete,
   storeRoutine,
+  timeBudget,
 } from '../../storage/db';
 import { flushAll, loadSession, prefetchSchedule, refreshAthlete, withPendingChecks, type Source } from '../../sync';
 import { colors, levelColor, levelTextColor, space } from '../../theme';
@@ -53,6 +56,7 @@ export default function Today() {
   const [rejected, setRejected] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [budget, setBudget] = useState<number | null>(() => timeBudget(today));
 
   const fetchedAt = useRef(0);
   const run = useRef(0); // only the latest network load may write state
@@ -159,7 +163,15 @@ export default function Today() {
 
   // Machine programs carry nothing: a panel of zeros is noise.
   const carried = !!armor && armor.total_kg_m > 0;
-  const exerciseCount = session ? session.blocks.reduce((n, b) => n + b.exercises.length, 0) : 0;
+  const fitted = session ? fitToBudget(session, budget) : null;
+  const plan = fitted?.session ?? session;
+  const exerciseCount = plan ? plan.blocks.reduce((n, b) => n + b.exercises.length, 0) : 0;
+  const fullMinutes = session ? estimateMinutes(session) : 0;
+  const budgets = BUDGET_OPTIONS.filter((m) => m < fullMinutes);
+  const pickBudget = (m: number | null) => {
+    setTimeBudget(today, m);
+    setBudget(m);
+  };
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -221,9 +233,27 @@ export default function Today() {
               <T variant="display" style={{ fontSize: 26, lineHeight: 32 }}>{session.day_name}</T>
               <T variant="label">
                 {session.blocks.length > 0
-                  ? `${session.target_duration_minutes} min · ${exerciseCount} ${exerciseCount === 1 ? 'exercício' : 'exercícios'}`
+                  ? `${plan?.target_duration_minutes ?? session.target_duration_minutes} min · ${exerciseCount} ${exerciseCount === 1 ? 'exercício' : 'exercícios'}`
                   : 'Sem sessão hoje'}
               </T>
+              {session.is_training_day && budgets.length > 0 && (
+                <View style={{ gap: space.xs }}>
+                  <T variant="label">Tempo disponível</T>
+                  <Row style={{ flexWrap: 'wrap' }}>
+                    <Chip label="Completo" selected={budget == null} onPress={() => pickBudget(null)} />
+                    {budgets.map((m) => (
+                      <Chip key={m} label={`${m} min`} selected={budget === m} onPress={() => pickBudget(m)}
+                        accessibilityLabel={`Tenho só ${m} minutos`} />
+                    ))}
+                  </Row>
+                  {fitted && fitted.changes.length > 0 && (
+                    <T variant="hint" color={fitted.fits ? colors.textMuted : colors.warning}>
+                      {fitted.fits ? 'Ajustado: ' : `Mesmo ajustado, cerca de ${fitted.minutes} min: `}
+                      {fitted.changes.join(' · ')}.
+                    </T>
+                  )}
+                </View>
+              )}
               <CycleStrip sessions={strip} current={session.cycle_day} structure={session.cycle_structure} />
               {/* A full rest day has no session: nothing to list or start. */}
               {session.blocks.length > 0 && (
@@ -234,7 +264,7 @@ export default function Today() {
                     onPress={() => router.push({ pathname: '/session/[day]', params: { day: today } })}
                     style={{ marginTop: space.sm }}
                   />
-                  <SessionOutline session={session} />
+                  <SessionOutline session={plan ?? session} />
                 </>
               )}
             </Panel>
