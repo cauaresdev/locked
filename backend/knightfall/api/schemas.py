@@ -196,6 +196,23 @@ class MissedOut(OutModel):
     missed: list[date]
 
 
+class ExercisePreferenceIn(InModel):
+    replacement_id: str
+
+    @model_validator(mode="after")
+    def _known_exercise(self) -> ExercisePreferenceIn:
+        if self.replacement_id not in EXERCISES:
+            raise ValueError(f"unknown exercise_id {self.replacement_id!r}")
+        return self
+
+
+class ExercisePreferenceOut(OutModel):
+    exercise_id: str
+    name: str
+    replacement_id: str
+    replacement_name: str
+
+
 class CycleShiftIn(InModel):
     days: int = Field(ge=1, le=7)
 

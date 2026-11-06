@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -279,6 +279,57 @@ def generate_session(
     bodyweight_kg: float | None = None,
     low_readiness_streak: bool = False,
     equipment: Equipment = None,
+    replacements: Mapping[str, str] | None = None,
+) -> Session:
+    """`replacements`: the athlete's standing swaps (planned exercise id -> the one they do instead)."""
+    ctx = dict(readiness=readiness, history=history, bodyweight_kg=bodyweight_kg,
+               low_readiness_streak=low_readiness_streak, equipment=equipment)
+    session = _generate(tier, pos, seed, weeks_in_tier=weeks_in_tier, **ctx)
+    if replacements and session.is_training_day:
+        session = apply_replacements(tier, pos, seed, session, replacements, **ctx)
+    return session
+
+
+def apply_replacements(tier: Tier, pos: CyclePosition, seed: str, session: Session,
+                       replacements: Mapping[str, str], **ctx) -> Session:
+    """Swap each planned exercise the athlete replaced for good, when the replacement is one of that slot's
+    alternatives (same prescription rules as a swap made in the app). Others stay as planned."""
+    blocks = list(session.blocks)
+    done: list[str] = []
+    for bi, block in enumerate(blocks):
+        for i, rx in enumerate(block.exercises):
+            target = replacements.get(rx.exercise_id)
+            if target is None:
+                continue
+            current = session.model_copy(update={"blocks": blocks})
+            try:
+                options = _alternatives(tier, pos, seed, current, block.order, i, **ctx)
+            except ValueError:
+                continue
+            pick = next((o for o in options if o.exercise_id == target), None)
+            if pick is None:
+                continue
+            exercises = list(blocks[bi].exercises)
+            exercises[i] = pick
+            blocks[bi] = blocks[bi].model_copy(update={"exercises": exercises})
+            done.append(f"{pick.name} no lugar de {rx.name}")
+    if not done:
+        return session
+    notice = "Suas trocas fixas: " + "; ".join(done) + ". Desfaça em Perfil > Trocas de exercício."
+    return session.model_copy(update={"blocks": blocks, "notices": [*session.notices, notice]})
+
+
+def _generate(
+    tier: Tier,
+    pos: CyclePosition,
+    seed: str,
+    *,
+    readiness: ReadinessSummary | None = None,
+    history: Sequence[SetRecord] = (),
+    weeks_in_tier: int = 0,
+    bodyweight_kg: float | None = None,
+    low_readiness_streak: bool = False,
+    equipment: Equipment = None,
 ) -> Session:
     cfg = TIERS[tier]
     if not 1 <= pos.cycle_day <= cfg.cycle_length:
@@ -378,17 +429,38 @@ def alternatives(
     bodyweight_kg: float | None = None,
     low_readiness_streak: bool = False,
     equipment: Equipment = None,
+    replacements: Mapping[str, str] | None = None,
 ) -> list[Prescription]:
     """Swaps for one exercise of the strength or conditioning block: same movement pattern,
     other exercises the athlete has equipment for, prescribed with the block's parameters."""
+    ctx = dict(readiness=readiness, history=history, bodyweight_kg=bodyweight_kg,
+               low_readiness_streak=low_readiness_streak, equipment=equipment)
     cfg = TIERS[tier]
     if not 1 <= pos.cycle_day <= cfg.cycle_length:
         raise ValueError(f"cycle_day must be within 1..{cfg.cycle_length}")
+    session = generate_session(tier, pos, seed, replacements=replacements, **ctx)
+    return _alternatives(tier, pos, seed, session, block_order, index, **ctx)
+
+
+def _alternatives(
+    tier: Tier,
+    pos: CyclePosition,
+    seed: str,
+    session: Session,
+    block_order: int,
+    index: int,
+    *,
+    readiness: ReadinessSummary | None = None,
+    history: Sequence[SetRecord] = (),
+    bodyweight_kg: float | None = None,
+    low_readiness_streak: bool = False,
+    equipment: Equipment = None,
+) -> list[Prescription]:
+    """alternatives() for an already generated session."""
+    cfg = TIERS[tier]
     template_id = cfg.cycle[pos.cycle_day - 1]
     if template_id is None:
         raise ValueError("recovery days have no swappable exercises")
-    session = generate_session(tier, pos, seed, readiness=readiness, history=history, bodyweight_kg=bodyweight_kg,
-                               low_readiness_streak=low_readiness_streak, equipment=equipment)
     if cfg.program == "split":
         from . import splits
 

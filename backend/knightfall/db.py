@@ -226,6 +226,17 @@ class BodyMeasurement(Base):
     cm: Mapped[float] = mapped_column(Float)
 
 
+class ExercisePreference(Base):
+    """A standing swap: wherever the plan puts `exercise_id`, the athlete does `replacement_id` instead."""
+
+    __tablename__ = "exercise_preferences"
+
+    athlete_id: Mapped[str] = mapped_column(ForeignKey("athletes.id", ondelete="CASCADE"), primary_key=True)
+    exercise_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    replacement_id: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class WeighIn(Base):
     __tablename__ = "weigh_ins"
 

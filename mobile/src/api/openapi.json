@@ -1042,6 +1042,47 @@
         "title": "ExecutionStyle",
         "type": "string"
       },
+      "ExercisePreferenceIn": {
+        "properties": {
+          "replacement_id": {
+            "title": "Replacement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "replacement_id"
+        ],
+        "title": "ExercisePreferenceIn",
+        "type": "object"
+      },
+      "ExercisePreferenceOut": {
+        "properties": {
+          "exercise_id": {
+            "title": "Exercise Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "replacement_id": {
+            "title": "Replacement Id",
+            "type": "string"
+          },
+          "replacement_name": {
+            "title": "Replacement Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "exercise_id",
+          "name",
+          "replacement_id",
+          "replacement_name"
+        ],
+        "title": "ExercisePreferenceOut",
+        "type": "object"
+      },
       "FoodEntryIn": {
         "properties": {
           "barcode": {
@@ -4076,6 +4117,172 @@
         "summary": "Wake",
         "tags": [
           "telemetry"
+        ]
+      }
+    },
+    "/athletes/{athlete_id}/exercise-preferences": {
+      "get": {
+        "description": "Standing swaps: wherever the plan puts an exercise, the athlete does its replacement.",
+        "operationId": "list_exercise_preferences_athletes__athlete_id__exercise_preferences_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ExercisePreferenceOut"
+                  },
+                  "title": "Response List Exercise Preferences Athletes  Athlete Id  Exercise Preferences Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Exercise Preferences",
+        "tags": [
+          "training"
+        ]
+      }
+    },
+    "/athletes/{athlete_id}/exercise-preferences/{exercise_id}": {
+      "delete": {
+        "operationId": "delete_exercise_preference_athletes__athlete_id__exercise_preferences__exercise_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exercise_id",
+            "required": true,
+            "schema": {
+              "title": "Exercise Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Exercise Preference",
+        "tags": [
+          "training"
+        ]
+      },
+      "put": {
+        "description": "Always do `replacement_id` where the plan puts `exercise_id` (when it fits that slot).",
+        "operationId": "put_exercise_preference_athletes__athlete_id__exercise_preferences__exercise_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exercise_id",
+            "required": true,
+            "schema": {
+              "title": "Exercise Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExercisePreferenceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExercisePreferenceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Exercise Preference",
+        "tags": [
+          "training"
         ]
       }
     },

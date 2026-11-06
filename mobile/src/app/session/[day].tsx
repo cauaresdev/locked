@@ -15,7 +15,7 @@ import { TimerButton } from '../../components/TimerButton';
 import { fresh, useLiveBike } from '../../ble/devices';
 import { ExerciseThumb, HowToLink } from '../../components/ExerciseDemo';
 import { Icon } from '../../components/Icon';
-import { Badge, Button, Dots, Panel, Row, Stat, T, TextLink } from '../../components/ui';
+import { Badge, Button, Checkbox, Dots, Panel, Row, Stat, T, TextLink } from '../../components/ui';
 import { isRecord, sessionSummary, setE1rm } from '../../engine/athlete';
 import { clock, repsToLog, rxSummary } from '../../engine/format';
 import {
@@ -37,7 +37,7 @@ import { useCues } from '../../hooks/useCues';
 import { api } from '../../api/client';
 import { openExactAlarmSettings, prepareRestAlerts, scheduleRestAlert } from '../../notifications';
 import { cachedSession, enqueueLogs, loadProgress, saveProgress, storedAthlete, undoLog } from '../../storage/db';
-import { flushAll, loadSession } from '../../sync';
+import { flushAll, loadSession, prefetchSchedule } from '../../sync';
 import { colors, radius, space } from '../../theme';
 
 const EXACT_ALARM_ASKED_KEY = 'knightfall_exact_alarm_asked'; // once: Ajustes keeps the switch afterwards
@@ -448,7 +448,18 @@ export default function SessionScreen() {
           day={day}
           target={swapFor}
           current={view.blocks.find((b) => b.order === swapFor.block)?.exercises[swapFor.index] ?? null}
-          onPick={(rx) => {
+          onPick={async (rx, always) => {
+            const planned = session.blocks.find((b) => b.order === swapFor.block)?.exercises[swapFor.index];
+            if (always && planned) {
+              try {
+                await api.setExercisePreference(athleteId, planned.exercise_id, rx.exercise_id);
+                // The cached upcoming sessions still have the old exercise: fetch them again.
+                const a = storedAthlete();
+                if (a) prefetchSchedule(athleteId, day, a.cycle_start).catch(() => {});
+              } catch {
+                Alert.alert('Troca só de hoje', 'Sem conexão: a troca fixa não foi salva. Ela vale para este treino.');
+              }
+            }
             update((p) => ({ ...p, swaps: { ...p.swaps, [swapFor.key]: rx } }));
             setSwapFor(null);
           }}
@@ -650,10 +661,11 @@ function SwapSheet({
   day: string;
   target: SwapTarget;
   current: Prescription | null;
-  onPick: (rx: Prescription) => void;
+  onPick: (rx: Prescription, always: boolean) => void | Promise<void>;
   onClose: () => void;
 }) {
   const [options, setOptions] = useState<Prescription[] | null>(null);
+  const [always, setAlways] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     api.alternatives(athleteId, day, target.block, target.index)
@@ -672,11 +684,18 @@ function SwapSheet({
             </Pressable>
           </Row>
           {current && <T variant="hint">No lugar de: {current.name}</T>}
+          <Checkbox checked={always} onChange={setAlways} color={colors.accent}
+            accessibilityLabel="Usar sempre esta troca nos próximos treinos">
+            <View style={{ flex: 1 }}>
+              <T>Usar sempre esta troca</T>
+              <T variant="hint">Nos próximos treinos também. Desfaça em Perfil › Trocas de exercício.</T>
+            </View>
+          </Checkbox>
           {error && <T color={colors.warning}>{error}</T>}
           {!options && !error && <ActivityIndicator color={colors.textMuted} />}
           {options?.length === 0 && <T color={colors.textMuted}>Nenhuma alternativa com o seu equipamento.</T>}
           {options?.map((rx) => (
-            <Pressable key={rx.exercise_id} onPress={() => onPick(rx)} accessibilityRole="button">
+            <Pressable key={rx.exercise_id} onPress={() => onPick(rx, always)} accessibilityRole="button">
               <Panel>
                 <Row>
                   <ExerciseThumb exerciseId={rx.exercise_id} size={48} />

@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 
 from .. import armor, routine
 from ..catalog import EXERCISES
-from ..db import Athlete, ReadinessEntry, SetLog, athlete_records, insert_new
+from ..db import Athlete, ExercisePreference, ReadinessEntry, SetLog, athlete_records, insert_new
 from ..domain import Prescription, ReadinessSummary, Session, Tier
 from ..generator import alternatives
 from ..strength import current_e1rm, e1rm_history, system_extra
@@ -24,6 +24,8 @@ from .schemas import (
     AthleteUpdate,
     CycleShiftIn,
     Day,
+    ExercisePreferenceIn,
+    ExercisePreferenceOut,
     MissedOut,
     ReadinessIn,
     SetLogIn,
@@ -46,6 +48,7 @@ from .services import (
 router = APIRouter(tags=["training"])
 
 MAX_SCHEDULE_DAYS = 31
+MAX_EXERCISE_PREFERENCES = 60
 PROFILE_FIELDS = ("body_fat_pct", "height_cm", "birth_year", "sex", "hr_max_override", "timezone",
                   "early_bird_enabled", "wake_time", "sleep_target_hours", "nutrition_goal")
 NOT_NULL_FIELDS = {"name", "bodyweight_kg", "timezone", "early_bird_enabled", "wake_time", "sleep_target_hours",
@@ -144,6 +147,52 @@ def get_alternatives(
                             **plan_context(s, a, day, with_readiness=True))
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
+
+
+def _preference_out(p: ExercisePreference) -> ExercisePreferenceOut:
+    return ExercisePreferenceOut(exercise_id=p.exercise_id, name=EXERCISES[p.exercise_id].name,
+                                 replacement_id=p.replacement_id, replacement_name=EXERCISES[p.replacement_id].name)
+
+
+@router.get("/athletes/{athlete_id}/exercise-preferences", response_model=list[ExercisePreferenceOut])
+def list_exercise_preferences(a: AthleteDep, s: Db) -> list[ExercisePreferenceOut]:
+    """Standing swaps: wherever the plan puts an exercise, the athlete does its replacement."""
+    rows = s.scalars(select(ExercisePreference).where(ExercisePreference.athlete_id == a.id)
+                     .order_by(ExercisePreference.created_at))
+    return [_preference_out(p) for p in rows if p.exercise_id in EXERCISES and p.replacement_id in EXERCISES]
+
+
+@router.put("/athletes/{athlete_id}/exercise-preferences/{exercise_id}", response_model=ExercisePreferenceOut)
+def put_exercise_preference(
+    exercise_id: str, body: ExercisePreferenceIn, a: AthleteDep, s: Db
+) -> ExercisePreferenceOut:
+    """Always do `replacement_id` where the plan puts `exercise_id` (when it fits that slot)."""
+    if exercise_id not in EXERCISES:
+        raise HTTPException(422, f"unknown exercise_id {exercise_id!r}")
+    if body.replacement_id == exercise_id:
+        raise HTTPException(422, "Um exercício não substitui ele mesmo.")
+    pref = s.get(ExercisePreference, (a.id, exercise_id))
+    if pref is None:
+        count = len(s.scalars(select(ExercisePreference.exercise_id)
+                              .where(ExercisePreference.athlete_id == a.id)).all())
+        if count >= MAX_EXERCISE_PREFERENCES:
+            raise HTTPException(422, f"Limite de {MAX_EXERCISE_PREFERENCES} trocas fixas.")
+        pref = ExercisePreference(athlete_id=a.id, exercise_id=exercise_id)
+        s.add(pref)
+    pref.replacement_id = body.replacement_id
+    # A chain (A -> B, B -> C) would only apply its first link: point the old swaps straight at the end.
+    for other in s.scalars(select(ExercisePreference).where(ExercisePreference.athlete_id == a.id,
+                                                             ExercisePreference.replacement_id == exercise_id)):
+        other.replacement_id = body.replacement_id
+    s.commit()
+    return _preference_out(pref)
+
+
+@router.delete("/athletes/{athlete_id}/exercise-preferences/{exercise_id}", status_code=204)
+def delete_exercise_preference(exercise_id: str, a: AthleteDep, s: Db) -> None:
+    s.execute(delete(ExercisePreference).where(ExercisePreference.athlete_id == a.id,
+                                               ExercisePreference.exercise_id == exercise_id))
+    s.commit()
 
 
 @router.get("/athletes/{athlete_id}/schedule", response_model=list[Session])

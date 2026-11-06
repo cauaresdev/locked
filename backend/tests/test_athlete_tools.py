@@ -178,3 +178,56 @@ def test_cycle_nutrition_day_api(client, auth):
     supplements = next(i for i in client.get(f"/athletes/{a['id']}/routine/{today().isoformat()}",
                                              headers=auth).json()["items"] if i["id"] == "supplements")
     assert supplements["detail"].startswith("1 de 6")  # 5 daily + collagen on a power day
+
+
+# --- standing exercise swaps -----------------------------------------------------------
+
+
+def test_standing_swap_replaces_the_planned_exercise_with_the_slot_prescription():
+    from knightfall.generator import alternatives
+
+    pos = CyclePosition(0, 1)
+    plain = generate_session(Tier.PUSH_PULL_LEGS, pos, "seed")
+    accessories = next(b for b in plain.blocks if b.name == "Acessórios")
+    planned = accessories.exercises[0]
+    alt = alternatives(Tier.PUSH_PULL_LEGS, pos, "seed", accessories.order, 0)[0]
+    swapped = generate_session(Tier.PUSH_PULL_LEGS, pos, "seed", replacements={planned.exercise_id: alt.exercise_id})
+    got = next(b for b in swapped.blocks if b.order == accessories.order).exercises[0]
+    assert got.exercise_id == alt.exercise_id and got.sets == planned.sets and got.rest_seconds == planned.rest_seconds
+    assert any(f"{alt.name} no lugar de {planned.name}" in n for n in swapped.notices)
+    # A replacement that does not fit the slot leaves the plan alone (no notice either).
+    odd = generate_session(Tier.PUSH_PULL_LEGS, pos, "seed", replacements={planned.exercise_id: "box_jump"})
+    assert odd.blocks == plain.blocks and odd.notices == plain.notices
+
+
+def test_standing_swaps_api(client, auth):
+    a = make_athlete(client, auth, tier="push_pull_legs")
+    base = f"/athletes/{a['id']}"
+    day = today().isoformat()
+    s = client.get(f"{base}/sessions/{day}", headers=auth).json()
+    block = next(b for b in s["blocks"] if b["name"] == "Acessórios")
+    planned = block["exercises"][0]["exercise_id"]
+    alts = client.get(f"{base}/sessions/{day}/alternatives", params={"block": block["order"], "index": 0},
+                      headers=auth).json()
+    first, second = alts[0]["exercise_id"], alts[1]["exercise_id"]
+
+    assert client.put(f"{base}/exercise-preferences/{planned}", json={"replacement_id": planned},
+                      headers=auth).status_code == 422
+    assert client.put(f"{base}/exercise-preferences/nope", json={"replacement_id": first},
+                      headers=auth).status_code == 422
+    r = client.put(f"{base}/exercise-preferences/{planned}", json={"replacement_id": first}, headers=auth)
+    assert r.status_code == 200 and r.json()["replacement_id"] == first
+    s = client.get(f"{base}/sessions/{day}", headers=auth).json()
+    assert next(b for b in s["blocks"] if b["order"] == block["order"])["exercises"][0]["exercise_id"] == first
+    sched = client.get(f"{base}/schedule", params={"start": day, "days": 1}, headers=auth).json()
+    assert next(b for b in sched[0]["blocks"] if b["order"] == block["order"])["exercises"][0]["exercise_id"] == first
+
+    # Swapping the replacement again re-points the first swap: no chains.
+    client.put(f"{base}/exercise-preferences/{first}", json={"replacement_id": second}, headers=auth)
+    prefs = {p["exercise_id"]: p["replacement_id"]
+             for p in client.get(f"{base}/exercise-preferences", headers=auth).json()}
+    assert prefs == {planned: second, first: second}
+
+    assert client.delete(f"{base}/exercise-preferences/{planned}", headers=auth).status_code == 204
+    s = client.get(f"{base}/sessions/{day}", headers=auth).json()
+    assert next(b for b in s["blocks"] if b["order"] == block["order"])["exercises"][0]["exercise_id"] == planned

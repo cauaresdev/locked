@@ -6,7 +6,7 @@ import { AccessibilityInfo, Alert, AppState, Pressable, ScrollView, StyleSheet, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../api/client';
-import type { Athlete, Implement, Sex, Tier } from '../../api/types';
+import type { Athlete, ExercisePreference, Implement, Sex, Tier } from '../../api/types';
 import { clearToken } from '../../auth';
 import { useDeviceControls, useDeviceScan, type FoundDevice } from '../../ble/devices';
 import { Icon } from '../../components/Icon';
@@ -26,7 +26,7 @@ import {
   storedAthlete,
 } from '../../storage/db';
 import type { DeviceRole } from '../../storage/db';
-import { flushAll } from '../../sync';
+import { flushAll, prefetchSchedule } from '../../sync';
 import { colors, radius, space } from '../../theme';
 
 const ROLE_LABEL: Record<DeviceRole, string> = {
@@ -361,6 +361,8 @@ export default function Settings() {
 
         <ExactAlarmPanel />
 
+        <SwapsPanel athleteId={athlete.id} />
+
         <EquipmentPanel athlete={athlete} onSave={(equipment) => save({ equipment }, 'Equipamentos salvos.', 'equipment')}
           feedback={<Feedback msg={msg} at="equipment" />} />
 
@@ -382,6 +384,50 @@ export default function Settings() {
         <Glossary />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/** Standing swaps made from a session ("Usar sempre esta troca"), with a way to undo each. */
+function SwapsPanel({ athleteId }: { athleteId: string }) {
+  const [prefs, setPrefs] = useState<ExercisePreference[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      api.exercisePreferences(athleteId).then((p) => {
+        setPrefs(p);
+        setError(null);
+      }).catch(() => setError('Sem conexão: as trocas fixas ficam no servidor.'));
+    }, [athleteId]),
+  );
+  async function remove(p: ExercisePreference) {
+    try {
+      await api.deleteExercisePreference(athleteId, p.exercise_id);
+      setPrefs((list) => list?.filter((x) => x.exercise_id !== p.exercise_id) ?? null);
+      const a = storedAthlete();
+      if (a) prefetchSchedule(athleteId, isoDay(), a.cycle_start).catch(() => {});
+    } catch {
+      setError('Não removeu: sem conexão.');
+    }
+  }
+  return (
+    <Panel style={styles.panel}>
+      <T variant="title">Trocas de exercício</T>
+      <T variant="hint">
+        Marque “Usar sempre esta troca” ao trocar um exercício no treino e ele passa a vir no lugar do original. A troca
+        só entra quando o substituto cabe naquela vaga.
+      </T>
+      {error && <T color={colors.warning}>{error}</T>}
+      {prefs?.length === 0 && <T variant="label">Nenhuma troca fixa.</T>}
+      {prefs?.map((p) => (
+        <Row key={p.exercise_id} style={{ justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <T>{p.replacement_name}</T>
+            <T variant="label">no lugar de {p.name}</T>
+          </View>
+          <TextLink label="Desfazer" accessibilityLabel={`Desfazer troca de ${p.name}`} onPress={() => remove(p)} />
+        </Row>
+      ))}
+    </Panel>
   );
 }
 

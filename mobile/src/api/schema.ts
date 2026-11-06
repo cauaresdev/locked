@@ -132,6 +132,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/athletes/{athlete_id}/exercise-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Exercise Preferences
+         * @description Standing swaps: wherever the plan puts an exercise, the athlete does its replacement.
+         */
+        get: operations["list_exercise_preferences_athletes__athlete_id__exercise_preferences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/athletes/{athlete_id}/exercise-preferences/{exercise_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Exercise Preference
+         * @description Always do `replacement_id` where the plan puts `exercise_id` (when it fits that slot).
+         */
+        put: operations["put_exercise_preference_athletes__athlete_id__exercise_preferences__exercise_id__put"];
+        post?: never;
+        /** Delete Exercise Preference */
+        delete: operations["delete_exercise_preference_athletes__athlete_id__exercise_preferences__exercise_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/athletes/{athlete_id}/food-entries": {
         parameters: {
             query?: never;
@@ -937,6 +978,22 @@ export interface components {
          * @enum {string}
          */
         ExecutionStyle: "straight_sets" | "amrap" | "checklist";
+        /** ExercisePreferenceIn */
+        ExercisePreferenceIn: {
+            /** Replacement Id */
+            replacement_id: string;
+        };
+        /** ExercisePreferenceOut */
+        ExercisePreferenceOut: {
+            /** Exercise Id */
+            exercise_id: string;
+            /** Name */
+            name: string;
+            /** Replacement Id */
+            replacement_id: string;
+            /** Replacement Name */
+            replacement_name: string;
+        };
         /** FoodEntryIn */
         FoodEntryIn: {
             /** Barcode */
@@ -1999,6 +2056,103 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EarlyBirdOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_exercise_preferences_athletes__athlete_id__exercise_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                athlete_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExercisePreferenceOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_exercise_preference_athletes__athlete_id__exercise_preferences__exercise_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exercise_id: string;
+                athlete_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExercisePreferenceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExercisePreferenceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_exercise_preference_athletes__athlete_id__exercise_preferences__exercise_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exercise_id: string;
+                athlete_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
