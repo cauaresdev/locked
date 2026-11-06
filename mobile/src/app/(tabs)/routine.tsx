@@ -29,6 +29,7 @@ import { cancelRoutineReminders, scheduleRoutineReminders } from '../../notifica
 import {
   cachedRoutine,
   dropRoutineCheck,
+  healthSyncEnabled,
   pendingRoutineChecks,
   queueRoutineCheck,
   routineRemindersEnabled,
@@ -37,11 +38,13 @@ import {
   storedAthlete,
   storeRoutine,
 } from '../../storage/db';
+import { syncSteps } from '../../health';
 import { flushRoutine, withPendingChecks } from '../../sync';
 import { colors, radius, space } from '../../theme';
 
 const WEEKDAY = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 const SLEEP_TARGETS = [7, 7.5, 8, 8.5, 9];
+const STEP_TARGETS = [6000, 8000, 10000, 12000];
 const SECTIONS = ['morning', 'day', 'night'] as const;
 
 const OFFLINE_TICKS = 'Sem conexão: marcações salvas no aparelho. Elas sobem quando a internet voltar.';
@@ -75,7 +78,8 @@ export default function RoutineScreen() {
     const id = ++run.current;
     try {
       if (pendingRoutineChecks().length) await flushRoutine(athleteId);
-      const r = await api.routine(athleteId, day);
+      const counted = healthSyncEnabled() ? await syncSteps(athleteId, day).catch(() => null) : null;
+      const r = counted ?? await api.routine(athleteId, day);
       if (id !== run.current) return;
       show(r);
       setError(pendingRoutineChecks(day).length ? OFFLINE_TICKS : null);
@@ -255,6 +259,18 @@ export default function RoutineScreen() {
               right={<TextLink label={editing ? 'Fechar' : 'Editar'} onPress={() => setEditing(!editing)} />}>
               {editing ? (
                 <Panel style={{ gap: space.lg }}>
+                  <View style={{ gap: space.sm }}>
+                    <T variant="label">Meta de passos</T>
+                    <Row style={{ flexWrap: 'wrap', gap: space.sm }}>
+                      {STEP_TARGETS.map((n) => (
+                        <Chip key={n} label={n.toLocaleString('pt-BR')} selected={athlete.steps_target === n}
+                          onPress={() => saveProfile({ steps_target: n })} />
+                      ))}
+                    </Row>
+                    <T variant="hint">
+                      Com a saúde ativa em Perfil, os passos vêm do relógio ou do celular e o item marca sozinho.
+                    </T>
+                  </View>
                   <View style={{ gap: space.sm }}>
                     <T variant="label">Meta de sono</T>
                     <Row style={{ flexWrap: 'wrap', gap: space.sm }}>

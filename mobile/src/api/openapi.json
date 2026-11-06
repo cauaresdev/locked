@@ -279,6 +279,19 @@
             ],
             "title": "Sleep Target Hours"
           },
+          "steps_target": {
+            "anyOf": [
+              {
+                "maximum": 30000.0,
+                "minimum": 2000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steps Target"
+          },
           "tier": {
             "$ref": "#/components/schemas/Tier"
           },
@@ -456,6 +469,10 @@
             "title": "Sleep Target Hours",
             "type": "number"
           },
+          "steps_target": {
+            "title": "Steps Target",
+            "type": "integer"
+          },
           "tier": {
             "$ref": "#/components/schemas/Tier"
           },
@@ -499,6 +516,7 @@
           "equipment",
           "health_consent_at",
           "sleep_target_hours",
+          "steps_target",
           "nutrition_goal",
           "routine_items",
           "cycle_length",
@@ -675,6 +693,19 @@
               }
             ],
             "title": "Sleep Target Hours"
+          },
+          "steps_target": {
+            "anyOf": [
+              {
+                "maximum": 30000.0,
+                "minimum": 2000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steps Target"
           },
           "tier": {
             "anyOf": [
@@ -2577,7 +2608,7 @@
           "value": {
             "anyOf": [
               {
-                "maximum": 15000.0,
+                "maximum": 100000.0,
                 "minimum": 0.0,
                 "type": "number"
               },
@@ -2648,7 +2679,8 @@
           "kind": {
             "enum": [
               "check",
-              "water"
+              "water",
+              "steps"
             ],
             "title": "Kind",
             "type": "string"

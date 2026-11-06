@@ -13,7 +13,7 @@ import { routineSummary } from '../../engine/routine';
 import { BUDGET_OPTIONS, estimateMinutes, fitToBudget } from '../../engine/timeBudget';
 import { addDays, cycleStructureLabel, decimal, formatKgM, isoDay, parseDecimal as num, rxSummary } from '../../engine/format';
 import { PROGRAM_NAME } from '../../engine/programs';
-import { syncNight } from '../../health';
+import { syncNight, syncSteps } from '../../health';
 import {
   cachedRange,
   cachedRoutine,
@@ -97,7 +97,9 @@ export default function Today() {
         api.armorLoad(athleteId, today).catch(() => null),
         api.weight(athleteId, 14).catch(() => null),
         refreshAthlete(athleteId),
-        api.routine(athleteId, today).catch(() => null),
+        // Steps from the watch go up with the routine they tick; without health sync, just the routine.
+        (healthSyncEnabled() ? syncSteps(athleteId, today).catch(() => null) : Promise.resolve(null))
+          .then((r) => r ?? api.routine(athleteId, today).catch(() => null)),
       ]);
       // Queued sets (e1RM, missed days) and last night's HRV/sleep change today's session:
       // upload them first only when there is something to upload.

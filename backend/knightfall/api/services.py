@@ -69,6 +69,7 @@ def athlete_out(a: Athlete) -> AthleteOut:
         equipment=sorted(athlete_equipment(a) or set(Implement) - {Implement.MACHINE}),
         health_consent_at=a.health_consent_at,
         sleep_target_hours=a.sleep_target_hours,
+        steps_target=a.steps_target,
         nutrition_goal=a.nutrition_goal,  # type: ignore[arg-type]
         routine_items=sorted(routine.enabled_items(a.routine_items)),
         cycle_length=cfg.cycle_length,

@@ -50,9 +50,9 @@ router = APIRouter(tags=["training"])
 MAX_SCHEDULE_DAYS = 31
 MAX_EXERCISE_PREFERENCES = 60
 PROFILE_FIELDS = ("body_fat_pct", "height_cm", "birth_year", "sex", "hr_max_override", "timezone",
-                  "early_bird_enabled", "wake_time", "sleep_target_hours", "nutrition_goal")
+                  "early_bird_enabled", "wake_time", "sleep_target_hours", "steps_target", "nutrition_goal")
 NOT_NULL_FIELDS = {"name", "bodyweight_kg", "timezone", "early_bird_enabled", "wake_time", "sleep_target_hours",
-                   "nutrition_goal"}
+                   "steps_target", "nutrition_goal"}
 
 
 def _equipment(value: list | None) -> str | None:

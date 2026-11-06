@@ -754,6 +754,8 @@ export interface components {
             sex?: ("male" | "female") | null;
             /** Sleep Target Hours */
             sleep_target_hours?: number | null;
+            /** Steps Target */
+            steps_target?: number | null;
             tier: components["schemas"]["Tier"];
             /** Timezone */
             timezone?: string | null;
@@ -804,6 +806,8 @@ export interface components {
             sex: ("male" | "female") | null;
             /** Sleep Target Hours */
             sleep_target_hours: number;
+            /** Steps Target */
+            steps_target: number;
             tier: components["schemas"]["Tier"];
             /** Timezone */
             timezone: string;
@@ -843,6 +847,8 @@ export interface components {
             sex?: ("male" | "female") | null;
             /** Sleep Target Hours */
             sleep_target_hours?: number | null;
+            /** Steps Target */
+            steps_target?: number | null;
             tier?: components["schemas"]["Tier"] | null;
             /** Timezone */
             timezone?: string | null;
@@ -1448,7 +1454,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "check" | "water";
+            kind: "check" | "water" | "steps";
             /**
              * Section
              * @enum {string}

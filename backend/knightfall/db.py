@@ -83,6 +83,7 @@ class Athlete(Base):
     # Comma-separated domain.Implement values the athlete has access to; NULL = a full gym.
     equipment: Mapped[str | None] = mapped_column(String(512), nullable=True)
     sleep_target_hours: Mapped[float] = mapped_column(Float, default=8.0)
+    steps_target: Mapped[int] = mapped_column(Integer, default=8000)
     # Comma-separated optional routine items switched on (routine.py); NULL = the defaults.
     routine_items: Mapped[str | None] = mapped_column(String(255), nullable=True)
     nutrition_goal: Mapped[str] = mapped_column(String(8), default="cut")  # nutrition.GOAL_KCAL_PER_LB_LBM

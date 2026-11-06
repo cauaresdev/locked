@@ -347,7 +347,8 @@ export default function Settings() {
             </Row>
             <T variant="hint">
               VFC (variabilidade da frequência cardíaca), frequência cardíaca de repouso e sono da última noite
-              alimentam a prontidão; o peso de uma balança conectada entra na média de 7 dias. Garmin, Oura e Whoop
+              alimentam a prontidão; o peso de uma balança conectada entra na média de 7 dias; os passos do dia
+              marcam o item da rotina. Garmin, Oura e Whoop
               entram via sincronização do app do fabricante com o {provider.name}.
             </T>
             <Row>

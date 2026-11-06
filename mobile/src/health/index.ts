@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 import { api } from '../api/client';
-import type { ReadinessSummary } from '../api/types';
+import type { ReadinessSummary, Routine } from '../api/types';
 import type { HealthProvider } from './types';
 
 /**
@@ -16,6 +16,15 @@ export function healthProvider(): HealthProvider | null {
   if (Platform.OS === 'android') return (require('./healthconnect') as typeof import('./healthconnect')).default;
   /* eslint-enable @typescript-eslint/no-require-imports */
   return null;
+}
+
+/** Today's step count from the health store into the routine (ticks "passos" at the target). */
+export async function syncSteps(athleteId: string, day: string): Promise<Routine | null> {
+  const p = healthProvider();
+  if (!p || !(await p.available())) return null;
+  const steps = await p.readSteps(day);
+  if (steps == null) return null;
+  return api.setRoutineItem(athleteId, day, 'steps', { value: Math.min(steps, 100_000) });
 }
 
 /**

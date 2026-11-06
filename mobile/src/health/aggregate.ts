@@ -26,6 +26,12 @@ export function nightWindow(day: string): { start: Date; end: Date } {
   return { start: new Date(y, m - 1, d - 1, 18), end: new Date(y, m - 1, d, 12) };
 }
 
+/** Local midnight to the next local midnight: the day the step count belongs to. */
+export function dayWindow(day: string): { start: Date; end: Date } {
+  const [y, m, d] = day.split('-').map(Number);
+  return { start: new Date(y, m - 1, d), end: new Date(y, m - 1, d + 1) };
+}
+
 // HealthKit HKCategoryValueSleepAnalysis: 1 asleepUnspecified, 3 core, 4 deep, 5 REM.
 const HK_ASLEEP = new Set([1, 3, 4, 5]);
 

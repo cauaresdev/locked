@@ -2,16 +2,18 @@ import {
   isHealthDataAvailable,
   queryCategorySamples,
   queryQuantitySamples,
+  queryStatisticsForQuantity,
   requestAuthorization,
 } from '@kingstinct/react-native-healthkit';
 
-import { mean, nightWindow, sleepHoursHealthKit } from './aggregate';
+import { dayWindow, mean, nightWindow, sleepHoursHealthKit } from './aggregate';
 import type { HealthProvider } from './types';
 
 const HRV = 'HKQuantityTypeIdentifierHeartRateVariabilitySDNN';
 const RESTING = 'HKQuantityTypeIdentifierRestingHeartRate';
 const SLEEP = 'HKCategoryTypeIdentifierSleepAnalysis';
 const BODY_MASS = 'HKQuantityTypeIdentifierBodyMass';
+const STEPS = 'HKQuantityTypeIdentifierStepCount';
 
 const provider: HealthProvider = {
   name: 'Apple Health',
@@ -20,7 +22,7 @@ const provider: HealthProvider = {
     return isHealthDataAvailable();
   },
   async requestAccess() {
-    return requestAuthorization({ toRead: [HRV, RESTING, SLEEP, BODY_MASS] });
+    return requestAuthorization({ toRead: [HRV, RESTING, SLEEP, BODY_MASS, STEPS] });
   },
   async readNight(day) {
     const { start, end } = nightWindow(day);
@@ -41,6 +43,16 @@ const provider: HealthProvider = {
         endDate: s.endDate }))),
       weight_kg: mass.length ? Math.round(mass[0].quantity * 10) / 10 : null,
     };
+  },
+  async readSteps(day) {
+    const { start, end } = dayWindow(day);
+    // A statistics query deduplicates iPhone + Apple Watch counting the same walk.
+    const r = await queryStatisticsForQuantity(STEPS, ['cumulativeSum'], {
+      filter: { date: { startDate: start, endDate: end } },
+      unit: 'count',
+    });
+    const n = r.sumQuantity?.quantity;
+    return n != null && n > 0 ? Math.round(n) : null;
   },
 };
 

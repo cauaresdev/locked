@@ -93,6 +93,7 @@ class ProfileFields(InModel):
     wake_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     equipment: list[Implement] | None = None  # implements available; None/omitted = full gym
     sleep_target_hours: float | None = Field(default=None, ge=6, le=10)
+    steps_target: int | None = Field(default=None, ge=2000, le=30000)
     nutrition_goal: NutritionGoal | None = None
     routine_items: list[str] | None = None  # optional routine items switched on; None/omitted = keep
 
@@ -153,6 +154,7 @@ class AthleteOut(OutModel):
     equipment: list[Implement]
     health_consent_at: datetime | None
     sleep_target_hours: float
+    steps_target: int
     nutrition_goal: NutritionGoal
     routine_items: list[str]  # every item shown, required ones included
     cycle_length: int
@@ -479,13 +481,13 @@ class EarlyBirdOut(OutModel):
 class RoutineItemOut(OutModel):
     id: str
     section: Literal["morning", "day", "night"]
-    kind: Literal["check", "water"]
+    kind: Literal["check", "water", "steps"]
     title: str
     detail: str | None
     done: bool
-    auto: bool  # ticked by the app's own data (sleep, Early Bird, logged sets, supplements)
-    value: float | None  # water: ml so far
-    target: float | None  # water: ml for the day
+    auto: bool  # ticked by the app's own data (sleep, Early Bird, logged sets, supplements, steps)
+    value: float | None  # water: ml so far; steps: count so far (from the health store)
+    target: float | None  # water: ml for the day; steps: the athlete's target
 
 
 class RoutineDayOut(OutModel):
@@ -520,7 +522,7 @@ class RoutineOut(OutModel):
 
 class RoutineCheckIn(InModel):
     done: bool | None = None
-    value: float | None = Field(default=None, ge=0, le=15000)  # water, ml
+    value: float | None = Field(default=None, ge=0, le=100_000)  # water in ml (route caps it), steps
 
     @model_validator(mode="after")
     def _one(self) -> RoutineCheckIn:
