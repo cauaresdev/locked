@@ -1478,6 +1478,10 @@ export interface components {
             deload: boolean;
             /** Is Training Day */
             is_training_day: boolean;
+            /** Meso Length */
+            meso_length: number | null;
+            /** Meso Week */
+            meso_week: number | null;
             /** Notices */
             notices: string[];
             /** Protocol Id */

@@ -2836,6 +2836,28 @@
             "title": "Is Training Day",
             "type": "boolean"
           },
+          "meso_length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meso Length"
+          },
+          "meso_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meso Week"
+          },
           "notices": {
             "items": {
               "type": "string"
@@ -2882,6 +2904,8 @@
           "rest_cap_seconds",
           "readiness",
           "deload",
+          "meso_week",
+          "meso_length",
           "notices",
           "blocks"
         ],

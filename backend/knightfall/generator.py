@@ -42,6 +42,8 @@ TARGET_RPE: dict[Modality, float] = {
     Modality.HYPERTROPHY: 8,
 }
 
+MAX_RAMPED_RPE = 9.5
+
 RECOVERY_DRILLS = ("worlds_greatest_stretch", "hip_90_90", "t_spine_rotation", "brettzel_stretch")
 RECOVERY_EXTRA_DRILLS = ("spiderman_lunge_stretch", "inchworm")
 
@@ -127,7 +129,8 @@ def build_rx(
     if no_rpe:
         rpe = None
     if rpe is not None:
-        rpe = max(5.0, rpe + rpe_delta)
+        # A ramp may push effort up, but never to failure: capped at RPE 9.5 (or the slot's own, if higher).
+        rpe = max(5.0, rpe + rpe_delta) if rpe_delta <= 0 else min(rpe + rpe_delta, max(rpe, MAX_RAMPED_RPE))
     return Prescription(
         exercise_id=ex.id,
         name=ex.name,

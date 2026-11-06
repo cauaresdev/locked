@@ -211,6 +211,9 @@ export default function Today() {
               <Row style={{ justifyContent: 'space-between' }}>
                 <T variant="label">
                   Dia {session.cycle_day} de {session.cycle_length} · ciclo {session.cycle_index + 1}
+                  {session.meso_week != null && session.meso_length != null
+                    ? ` · semana ${session.meso_week}/${session.meso_length} do mesociclo`
+                    : ''}
                 </T>
                 {session.deload && <Badge label="Deload" color={colors.warning} />}
               </Row>

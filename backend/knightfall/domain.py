@@ -249,5 +249,7 @@ class Session(OutModel):
     rest_cap_seconds: int
     readiness: ReadinessSummary | None = None
     deload: bool = False
+    meso_week: int | None = None  # splits: week of the mesocycle (1-based); the last is the deload
+    meso_length: int | None = None
     notices: list[str] = Field(default_factory=list)
     blocks: list[Block]

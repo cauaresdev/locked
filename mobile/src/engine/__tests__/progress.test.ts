@@ -48,6 +48,8 @@ const session: Session = {
   cycle_day: 1,
   cycle_length: 8,
   cycle_structure: '6_on_2_off',
+  meso_week: null,
+  meso_length: null,
   deload: false,
   is_training_day: true,
   day_name: 'Pull + Carry',
