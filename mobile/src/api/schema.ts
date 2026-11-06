@@ -1246,6 +1246,11 @@ export interface components {
         Pattern: "pull_vertical" | "pull_horizontal" | "push_horizontal" | "push_vertical" | "squat" | "hinge" | "lunge" | "carry" | "core_anti_rotation" | "core_flexion" | "neck" | "arms" | "shoulders" | "traps" | "knee_extension" | "knee_flexion" | "calves" | "hip_isolation" | "chest_fly" | "rear_delt" | "sprint" | "cardio" | "myofascial" | "mobility";
         /** Prescription */
         Prescription: {
+            /**
+             * Amrap Last Set
+             * @default false
+             */
+            amrap_last_set: boolean;
             /** Best E1Rm Kg */
             best_e1rm_kg: number | null;
             /** Cues */

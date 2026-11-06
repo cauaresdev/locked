@@ -32,6 +32,7 @@ const rx = (over: Partial<Prescription>): Prescription => ({
   last_set: null,
   best_e1rm_kg: null,
   warmup_sets: [],
+  amrap_last_set: false,
   tempo: null,
   unilateral: false,
   target_rpe: null,

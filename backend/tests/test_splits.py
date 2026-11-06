@@ -257,3 +257,47 @@ def test_days_before_the_first_monday_are_free(client, auth):
         assert client.get(f"/athletes/{a['id']}/nutrition/{today.isoformat()}", headers=auth).status_code == 200
     first = client.get(f"/athletes/{a['id']}/sessions/{start.isoformat()}", headers=auth).json()
     assert first["cycle_day"] == 1 and first["is_training_day"]
+
+
+def test_calibration_set_on_the_last_loading_week_only_on_stations_with_safeties():
+    from knightfall.plateau import CALIBRATION_SAFE
+
+    def flagged(k):
+        return [rx for d in _sessions(Tier.UPPER_LOWER, k, equipment=MACHINE_GYM) for b in d.blocks
+                for rx in b.exercises if rx.amrap_last_set]
+
+    peak = flagged(4)  # week 5 of 6
+    assert peak and all(EXERCISES[rx.exercise_id].implement in CALIBRATION_SAFE for rx in peak)
+    assert all(any("falha técnica" in c for c in rx.cues) for rx in peak)
+    assert not flagged(2) and not flagged(5)  # mid-mesocycle, deload
+    red = ReadinessSummary(score=20, level="red", mobility_expanded=True)
+    assert not [rx for d in _sessions(Tier.UPPER_LOWER, 4, equipment=MACHINE_GYM, readiness=red)
+                for b in d.blocks for rx in b.exercises if rx.amrap_last_set]
+
+
+def test_plateau_notes_one_stalled_lift_and_fatigue_when_several_stall():
+    start = date(2026, 1, 5)
+
+    def flat(ex_id, top):
+        # Best early on, then three sessions below it.
+        loads = [top, top - 5, top - 5, top - 2.5]
+        return [SetRecord(start + timedelta(days=7 * i), ex_id, reps=5, load_kg=kg, rpe=8.5)
+                for i, kg in enumerate(loads)]
+
+    def rising(ex_id, top):
+        return [SetRecord(start + timedelta(days=7 * i), ex_id, reps=5, load_kg=top + 2.5 * i, rpe=8.5)
+                for i in range(4)]
+
+    pos = CyclePosition(2, 1)  # Batfleck day 1: bench top set + back-off; no deload
+    s = generate_session(Tier.BATFLECK, pos, "seed", history=flat("barbell_bench_press", 100), bodyweight_kg=90)
+    note = [n for n in s.notices if "sem recorde" in n]
+    assert len(note) == 1 and note[0].startswith("Supino reto com barra:") and "troque a variação" in note[0]
+    ok = generate_session(Tier.BATFLECK, pos, "seed", history=rising("barbell_bench_press", 100), bodyweight_kg=90)
+    assert not any("sem recorde" in n for n in ok.notices)
+
+    day1 = generate_session(Tier.BATFLECK, pos, "seed")
+    main = [rx.exercise_id for rx in day1.blocks[1].exercises if rx.modality == "strength" and rx.set_role != "backoff"]
+    assert len(set(main)) >= 2, main
+    both = flat(main[0], 100) + flat(next(e for e in main if e != main[0]), 60)
+    tired = generate_session(Tier.BATFLECK, pos, "seed", history=both, bodyweight_kg=90)
+    assert any("antecipar o deload" in n for n in tired.notices)

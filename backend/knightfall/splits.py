@@ -64,6 +64,7 @@ from .domain import (
     Tier,
     WarmupSet,
 )
+from .plateau import with_calibration_set
 from .progression import warmup_ramp
 from .records import SetRecord
 from .strength import e1rm_history
@@ -968,6 +969,8 @@ def generate(
     ids = select(day_id, cycle_index, equipment, cfg.deload_every_cycles)
     p = params(cfg, cycle_index, readiness, low_readiness_streak)
     week = meso_week(cfg, cycle_index)
+    # The last loading week of the mesocycle (effort already at its peak), on green or amber days.
+    calibrate = cfg.rpe_ramp and week == cfg.deload_every_cycles - 1 and not p.deload and not p.red
     kw = dict(p=p, history=history, bodyweight_kg=bodyweight_kg)
 
     blocks = [_warmup(cfg, day, equipment, p.red)]
@@ -978,6 +981,8 @@ def generate(
             continue
         rxs = _block_rxs(g.slots, g_ids, scaled=g.scaled, first_lift=g.slots is day.main, no_rpe=g.no_rpe,
                          **kw)
+        if g.slots is day.main and calibrate:
+            rxs = with_calibration_set(rxs)
         blocks.append(Block(order=order, kind=g.kind, name=g.name, duration_minutes=_block_minutes(rxs),
                             execution_style=ExecutionStyle.STRAIGHT_SETS,
                             rest_seconds=0 if g.kind == BlockKind.CONDITIONING else cfg.rest_seconds,

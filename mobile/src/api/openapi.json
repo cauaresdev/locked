@@ -1869,6 +1869,11 @@
       },
       "Prescription": {
         "properties": {
+          "amrap_last_set": {
+            "default": false,
+            "title": "Amrap Last Set",
+            "type": "boolean"
+          },
           "best_e1rm_kg": {
             "anyOf": [
               {
@@ -2135,7 +2140,8 @@
           "cues",
           "last_set",
           "best_e1rm_kg",
-          "warmup_sets"
+          "warmup_sets",
+          "amrap_last_set"
         ],
         "title": "Prescription",
         "type": "object"

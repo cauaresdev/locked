@@ -49,7 +49,9 @@ export function SetRunner({
   const [load, setLoad] = useState(initialLoad != null ? fmt(initialLoad) : '');
   // Never pre-filled with the target: an untouched default would log the plan instead of
   // the effort, and every load suggestion is computed from these ratings.
-  const [rpe, setRpe] = useState<number | null>(null);
+  // ...except the calibration set: going to technical failure is effort 10 by definition.
+  const amrap = rx.amrap_last_set && setNumber >= rx.sets;
+  const [rpe, setRpe] = useState<number | null>(amrap ? 10 : null);
   const timed = rx.mode === 'timed' || rx.mode === 'hold';
   const distance = rx.mode === 'distance';
   const needsRpe = !prep && rpeRequired(rx, setNumber);
@@ -61,6 +63,7 @@ export function SetRunner({
     <Panel style={{ gap: space.md }}>
       <T variant="title" style={{ fontSize: 16 }}>
         Série {setNumber}/{rx.sets}{rx.set_role === 'top' ? ' · top set' : rx.set_role === 'backoff' ? ' · back-off' : ''}
+        {amrap ? ' · até a falha técnica' : ''}
         {distance ? ` · ${rx.distance_m} m` : ''}
       </T>
       {rx.tempo && rx.mode === 'reps' && <Metronome rx={rx} />}
@@ -74,7 +77,7 @@ export function SetRunner({
       )}
       <Row style={{ alignItems: 'flex-end' }}>
         {!timed && !distance && (
-          <Field label={(rx.reps_per_side ? 'Repetições por lado' : 'Repetições') + range} value={reps}
+          <Field label={(rx.reps_per_side ? 'Repetições por lado' : 'Repetições') + (amrap ? ' (máximo)' : range)} value={reps}
             onChangeText={setReps} keyboardType="number-pad" />
         )}
         {showLoad && (

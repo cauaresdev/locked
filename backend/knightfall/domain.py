@@ -199,6 +199,7 @@ class Prescription(OutModel):
     last_set: LastSet | None = None
     best_e1rm_kg: float | None = Field(default=None, ge=0)  # all-time best estimate; external load only
     warmup_sets: list[WarmupSet] = Field(default_factory=list)  # ramp before the first heavy lift
+    amrap_last_set: bool = False  # the last set goes to technical failure (effort calibration, plateau.py)
 
     @model_validator(mode="after")
     def _check_mode_fields(self) -> Prescription:

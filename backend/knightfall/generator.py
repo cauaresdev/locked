@@ -22,6 +22,7 @@ from .domain import (
     Session,
     Tier,
 )
+from .plateau import plateau_notices
 from .progression import last_set, recommend_load
 from .records import SetRecord
 from .strength import e1rm_history
@@ -287,6 +288,8 @@ def generate_session(
     session = _generate(tier, pos, seed, weeks_in_tier=weeks_in_tier, **ctx)
     if replacements and session.is_training_day:
         session = apply_replacements(tier, pos, seed, session, replacements, **ctx)
+    if notes := plateau_notices(session, history):
+        session = session.model_copy(update={"notices": [*session.notices, *notes]})
     return session
 
 

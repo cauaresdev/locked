@@ -22,6 +22,11 @@
   (−1; −0,5; 0; +0,5; +1, nunca acima de 9,5) e a carga sugerida acompanha; depois vem o deload. O Conjugado fica
   fora da rampa: o esforço máximo é máximo toda semana.
 - **Esforço alvo.** O RIR (repetições em reserva) do protocolo vira a escala do app: RIR 1 = esforço 9, RIR 2 = 8.
+- **Série de calibração.** Na última semana de carga, a última série do primeiro básico feito em máquina, smith,
+  leg press, hack ou polia vai até a falha técnica (esforço 10): corrige o 1RM estimado de quem erra o RPE.
+- **Estagnação.** Básico sem recorde em 3 treinos ganha um aviso (trocar a variação); dois ou mais parados juntos
+  sugerem antecipar o deload.
+- **Trocas fixas.** "Usar sempre esta troca" faz o substituto entrar no lugar do original nos próximos treinos.
 - **Top set + back-off** a 80% da carga do top set, onde o programa pede.
 - **Prontidão vermelha** corta as séries para 60% e tira o finalizador; **deload** a cada 6 ciclos.
 - **Programas semanais** (Armadura de Gotham, Functional Bodybuilding, Conjugado): o dia 1 é segunda-feira.
