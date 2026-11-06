@@ -4,6 +4,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-n
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../api/client';
+import { isRejection } from '../../engine/deliver';
 import type { Athlete, Routine, RoutineCheck, RoutineItem } from '../../api/types';
 import { GuidedRoutine } from '../../components/GuidedRoutine';
 import { Icon } from '../../components/Icon';
@@ -27,17 +28,23 @@ import { routineSummary, SECTION_TITLE, withCheck } from '../../engine/routine';
 import { cancelRoutineReminders, scheduleRoutineReminders } from '../../notifications';
 import {
   cachedRoutine,
+  dropRoutineCheck,
+  pendingRoutineChecks,
+  queueRoutineCheck,
   routineRemindersEnabled,
   setRoutineRemindersEnabled,
   storeAthlete,
   storedAthlete,
   storeRoutine,
 } from '../../storage/db';
+import { flushRoutine, withPendingChecks } from '../../sync';
 import { colors, radius, space } from '../../theme';
 
 const WEEKDAY = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 const SLEEP_TARGETS = [7, 7.5, 8, 8.5, 9];
 const SECTIONS = ['morning', 'day', 'night'] as const;
+
+const OFFLINE_TICKS = 'Sem conexão: marcações salvas no aparelho. Elas sobem quando a internet voltar.';
 
 function hours(h: number): string {
   return `${String(h).replace('.', ',')} h`;
@@ -56,19 +63,22 @@ export default function RoutineScreen() {
   const run = useRef(0); // a slow response must not overwrite a newer tick
   const athleteId = athlete?.id;
 
+  // Ticks still queued on the device stay ticked over whatever the server last knew.
   const show = useCallback((r: Routine) => {
-    setRoutine(r);
-    storeRoutine(r);
+    const view = withPendingChecks(r);
+    setRoutine(view);
+    storeRoutine(view);
   }, []);
 
   const load = useCallback(async () => {
     if (!athleteId) return;
     const id = ++run.current;
     try {
+      if (pendingRoutineChecks().length) await flushRoutine(athleteId);
       const r = await api.routine(athleteId, day);
       if (id !== run.current) return;
       show(r);
-      setError(null);
+      setError(pendingRoutineChecks(day).length ? OFFLINE_TICKS : null);
     } catch {
       if (id === run.current) setError('Sem conexão: mostrando a última versão salva.');
     }
@@ -86,14 +96,23 @@ export default function RoutineScreen() {
     if (!athleteId || !routine) return;
     const before = routine;
     const id = ++run.current;
-    setRoutine(withCheck(routine, item.id, body)); // instant; the server's answer replaces it
+    const optimistic = withCheck(routine, item.id, body);
+    setRoutine(optimistic); // instant; the server's answer replaces it
     try {
       const r = await api.setRoutineItem(athleteId, day, item.id, body);
+      dropRoutineCheck(day, item.id); // this tick is newer than any queued one for the item
       if (id === run.current) show(r);
-      setError(null);
-    } catch {
-      if (id === run.current) setRoutine(before);
-      setError('Não salvou: sem conexão. Tente de novo quando a internet voltar.');
+      setError(pendingRoutineChecks(day).length ? OFFLINE_TICKS : null);
+    } catch (e) {
+      if (isRejection(e)) {
+        if (id === run.current) setRoutine(before);
+        setError('O servidor recusou esta marcação.');
+        return;
+      }
+      // Offline (the gym basement): keep the tick on the device and send it with the next sync.
+      queueRoutineCheck({ day, item: item.id, body });
+      storeRoutine(optimistic);
+      setError(OFFLINE_TICKS);
     }
   }
 

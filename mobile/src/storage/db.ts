@@ -7,6 +7,7 @@ import type {
   NutritionDay,
   Progress as ProgressReport,
   Routine,
+  RoutineCheck,
   Session,
   SetLog,
   TelemetrySample,
@@ -157,14 +158,14 @@ export async function pendingCount(): Promise<number> {
   return row?.n ?? 0;
 }
 
-/** Everything still waiting to upload: set logs, food entries, deletes and telemetry batches. */
+/** Everything still waiting to upload: set logs, food entries, deletes, telemetry batches and routine ticks. */
 export async function pendingTotal(): Promise<number> {
   await migrate();
   const row = await db.getFirstAsync<{ n: number }>(
     `SELECT (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM food_outbox) + (SELECT COUNT(*) FROM telemetry_outbox)
           + (SELECT COUNT(*) FROM log_deletes) + (SELECT COUNT(*) FROM food_deletes) AS n`,
   );
-  return row?.n ?? 0;
+  return (row?.n ?? 0) + pendingRoutineChecks().length;
 }
 
 export async function loadProgress(day: string): Promise<Progress> {
@@ -281,7 +282,7 @@ export async function clearLocalData(): Promise<void> {
       `),
     ),
   );
-  for (const key of [ATHLETE_KEY, DEVICES_KEY, HEALTH_KEY, PROGRESS_KEY, ROUTINE_KEY, REMINDERS_KEY]) {
+  for (const key of [ATHLETE_KEY, DEVICES_KEY, HEALTH_KEY, PROGRESS_KEY, ROUTINE_KEY, REMINDERS_KEY, ROUTINE_OUTBOX_KEY]) {
     Storage.removeItemSync(key);
   }
   athleteMemo = undefined;
@@ -295,6 +296,7 @@ const PROGRESS_KEY = 'progress_report';
 const OWNER_KEY = 'local_owner';
 const ROUTINE_KEY = 'routine_day';
 const REMINDERS_KEY = 'routine_reminders';
+const ROUTINE_OUTBOX_KEY = 'routine_outbox';
 
 export type DeviceRole = 'hr' | 'bike';
 export type SavedDevices = Partial<Record<DeviceRole, { id: string; name: string }>>;
@@ -327,6 +329,37 @@ export function storeRoutine(r: Routine): void {
   Storage.setItemSync(ROUTINE_KEY, JSON.stringify(r));
 }
 
+/** A routine tick that has not reached the server yet. Ticks set state (water is a total), so the last one wins. */
+export interface PendingRoutineCheck {
+  day: string;
+  item: string;
+  body: RoutineCheck;
+}
+
+const sameCheck = (a: PendingRoutineCheck, b: { day: string; item: string }) => a.day === b.day && a.item === b.item;
+
+export function pendingRoutineChecks(day?: string): PendingRoutineCheck[] {
+  const raw = Storage.getItemSync(ROUTINE_OUTBOX_KEY);
+  const all = raw ? (JSON.parse(raw) as PendingRoutineCheck[]) : [];
+  return day ? all.filter((c) => c.day === day) : all;
+}
+
+export function queueRoutineCheck(check: PendingRoutineCheck): void {
+  const rest = pendingRoutineChecks().filter((c) => !sameCheck(c, check));
+  Storage.setItemSync(ROUTINE_OUTBOX_KEY, JSON.stringify([...rest, check]));
+}
+
+/** Drop a delivered tick, unless a newer one for the same item was queued while it was in flight. */
+export function removeRoutineCheck(check: PendingRoutineCheck): void {
+  const body = JSON.stringify(check.body);
+  const rest = pendingRoutineChecks().filter((c) => !(sameCheck(c, check) && JSON.stringify(c.body) === body));
+  Storage.setItemSync(ROUTINE_OUTBOX_KEY, JSON.stringify(rest));
+}
+
+/** A tick sent straight to the server supersedes any queued one for the same item. */
+export function dropRoutineCheck(day: string, item: string): void {
+  Storage.setItemSync(ROUTINE_OUTBOX_KEY, JSON.stringify(pendingRoutineChecks().filter((c) => !sameCheck(c, { day, item }))));
+}
 export function routineRemindersEnabled(): boolean {
   return Storage.getItemSync(REMINDERS_KEY) === '1';
 }

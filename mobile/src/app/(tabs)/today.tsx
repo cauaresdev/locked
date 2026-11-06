@@ -27,7 +27,7 @@ import {
   storedAthlete,
   storeRoutine,
 } from '../../storage/db';
-import { flushAll, loadSession, prefetchSchedule, refreshAthlete, type Source } from '../../sync';
+import { flushAll, loadSession, prefetchSchedule, refreshAthlete, withPendingChecks, type Source } from '../../sync';
 import { colors, levelColor, levelTextColor, space } from '../../theme';
 
 
@@ -115,8 +115,9 @@ export default function Today() {
       if (strengthRes) setStrength(strengthRes);
       if (weightRes) setWeight(weightRes);
       if (routineRes) {
-        setRoutine(routineRes);
-        storeRoutine(routineRes);
+        const view = withPendingChecks(routineRes); // ticks made offline and not uploaded yet
+        setRoutine(view);
+        storeRoutine(view);
       }
       // Offer a make-up only before today's session has started, and not after "Seguir o calendário".
       const dismissed = Storage.getItemSync(DISMISSED_KEY) === today;
