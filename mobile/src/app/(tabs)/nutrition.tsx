@@ -10,7 +10,23 @@ import type { Alert, FoodEntryInput, Meal, NutritionDay, NutritionGoal } from '.
 import { FoodPicker } from '../../components/FoodPicker';
 import { Meter } from '../../components/Meter';
 import { Icon } from '../../components/Icon';
-import { Badge, Button, Checkbox, Chip, Divider, Panel, ProgressBar, Row, ScreenHeader, Section, T } from '../../components/ui';
+import {
+  Badge,
+  Button,
+  Checkbox,
+  Chip,
+  CountUp,
+  Divider,
+  FadeIn,
+  Panel,
+  ProgressBar,
+  Row,
+  ScreenHeader,
+  Section,
+  Skeleton,
+  T,
+  TextLink,
+} from '../../components/ui';
 import { addDays, isoDay } from '../../engine/format';
 import { MEAL_LABEL, withPending, withoutDeleted } from '../../engine/nutrition';
 import {
@@ -53,6 +69,7 @@ export default function Nutrition() {
   const [loaded, setLoaded] = useState(false); // first load finished: "no data" is now a fact, not a wait
   const [picker, setPicker] = useState<Meal | null>(null);
   const [supplementError, setSupplementError] = useState<string | null>(null);
+  const [showMath, setShowMath] = useState(false);
   const run = useRef(0); // only the latest load may write state (fast day paging overlaps loads)
   const paged = useRef(false); // the athlete moved off today by hand
 
@@ -179,26 +196,42 @@ export default function Nutrition() {
           </Pressable>
         </View>
 
-        {!data && (
+        {!data && (loaded && !loading ? (
           <Panel>
-            <T color={colors.textMuted}>{loaded && !loading ? 'Sem dados em cache para este dia.' : 'Carregando…'}</T>
+            <T color={colors.textMuted}>Sem dados em cache para este dia.</T>
           </Panel>
-        )}
+        ) : (
+          <View style={{ gap: space.lg }} accessible accessibilityLabel="Carregando nutrição">
+            <Skeleton height={260} />
+            <Skeleton height={110} />
+            <Skeleton height={110} />
+          </View>
+        ))}
 
         {data && (
           <>
+            <FadeIn>
             <Panel style={{ gap: space.md, padding: space.xl }}>
-              <Row style={{ alignItems: 'baseline', gap: space.xs }}>
-                <T variant="metric" style={{ fontSize: 36 }}>{data.consumed.kcal}</T>
-                <T variant="label">de {data.target.kcal} kcal</T>
+              <Row style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                <Row style={{ alignItems: 'baseline', gap: space.xs }}>
+                  <CountUp value={data.consumed.kcal} style={{ fontSize: 40, lineHeight: 46 }} />
+                  <T variant="label">de {data.target.kcal} kcal</T>
+                </Row>
+                <T variant="label" color={data.consumed.kcal > data.kcal_ceiling ? colors.warning : colors.textMuted}>
+                  {data.consumed.kcal <= data.target.kcal
+                    ? `restam ${data.target.kcal - data.consumed.kcal}`
+                    : `${data.consumed.kcal - data.target.kcal} acima`}
+                </T>
               </Row>
               <ProgressBar value={data.target.kcal > 0 ? data.consumed.kcal / data.target.kcal : 0}
                 color={data.consumed.kcal > data.kcal_ceiling ? colors.warning : colors.accent} />
-              <T variant="hint">
+              <TextLink label={showMath ? 'Ocultar cálculo' : 'Como a meta é calculada'} color={colors.textMuted}
+                onPress={() => setShowMath(!showMath)} />
+              {showMath && <T variant="hint">
                 {data.goal === 'cycle'
                   ? `Faixa do dia ${data.kcal_floor}–${data.kcal_ceiling} kcal, pelas gramas por kg de peso corporal`
                   : `Massa magra ${data.lbm_kg} kg (${LBM_LABEL[data.lbm_source]}) · faixa ${data.kcal_floor}–${data.kcal_ceiling} · treino +${data.session_kcal} kcal ${SOURCE_LABEL[data.session_kcal_source]}`}
-              </T>
+              </T>}
               <GoalPicker goal={data.goal} onPick={setGoal} />
               {data.day_kind && <T variant="label" color={colors.accent}>{DAY_KIND[data.day_kind]}</T>}
               <Divider />
@@ -208,6 +241,7 @@ export default function Nutrition() {
               <Meter label="Sódio" value={data.consumed.sodium_mg} target={data.sodium_max_mg} min={data.sodium_min_mg}
                 max={data.sodium_max_mg} unit="mg" />
             </Panel>
+            </FadeIn>
 
             {data.alerts.map((a, i) => (
               <Panel key={`${a.code}-${i}`} accent={ALERT_COLOR[a.level]}>

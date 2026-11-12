@@ -59,17 +59,43 @@ def test_bodyweight_only_profile_falls_back_instead_of_leaving_holes():
     assert all(EXERCISES[i].implement == Implement.BODYWEIGHT for i in ids if i in ("nordic_curl",))
 
 
-def test_main_lifts_stay_and_accessories_rotate():
-    cycles = [splits.select("PPL1", k, MACHINE_GYM) for k in range(4)]
+def test_main_lifts_stay_and_accessories_rotate_once_per_mesocycle():
+    meso = TIERS[Tier.PUSH_PULL_LEGS].deload_every_cycles
+    cycles = [splits.select("PPL1", k, MACHINE_GYM, meso) for k in range(4 * meso)]
     n_main = len(splits.DAYS["PPL1"].main)
     assert len({c[:n_main] for c in cycles}) == 1
     fly = [c[n_main] for c in cycles]
-    assert len(set(fly)) > 1 and all(a != b for a, b in zip(fly, fly[1:]))
+    per_meso = [fly[m * meso:(m + 1) * meso] for m in range(4)]
+    assert all(len(set(block)) == 1 for block in per_meso)  # same accessory all mesocycle: loads can progress
+    firsts = [block[0] for block in per_meso]
+    assert len(set(firsts)) > 1 and all(a != b for a, b in zip(firsts, firsts[1:]))
+
+
+def test_effort_ramps_across_the_mesocycle_and_the_load_follows():
+    history = [SetRecord(date(2026, 1, 1), "barbell_bench_press", reps=5, load_kg=100, rpe=8.5)]
+    weeks = [generate_session(Tier.BATFLECK, CyclePosition(k, 1), "seed", history=history, bodyweight_kg=90)
+             for k in range(6)]
+    tops = [w.blocks[1].exercises[0] for w in weeks]
+    assert [w.meso_week for w in weeks] == [1, 2, 3, 4, 5, 6] and weeks[0].meso_length == 6
+    assert [t.target_rpe for t in tops[:5]] == [7.5, 8.0, 8.5, 9.0, 9.5]
+    assert weeks[5].deload and tops[5].target_rpe == 6.5  # deload: target -2, no ramp
+    loads = [t.suggested_load_kg for t in tops[:5]]
+    assert loads == sorted(loads) and loads[0] < loads[-1]
+    assert not any("Mesociclo novo" in n for n in weeks[0].notices)
+    assert any("Mesociclo novo" in n for n in generate_session(Tier.BATFLECK, CyclePosition(6, 1), "seed").notices)
+
+
+def test_ramp_never_prescribes_failure_and_conjugate_opts_out():
+    week5 = [rx.target_rpe for d in _sessions(Tier.NORTON_FB, 4) for b in d.blocks for rx in b.exercises]
+    assert max(r for r in week5 if r is not None) == 9.5
+    cj = [[rx.target_rpe for d in _sessions(Tier.CONJUGATE, k) for b in d.blocks for rx in b.exercises]
+          for k in (0, 4)]
+    assert cj[0] == cj[1]
 
 
 def test_top_set_and_backoff_share_the_exercise_and_the_backoff_is_lighter():
     history = [SetRecord(date(2026, 1, 1), "barbell_bench_press", reps=5, load_kg=100, rpe=8.5)]
-    s = generate_session(Tier.BATFLECK, CyclePosition(0, 1), "seed", history=history, bodyweight_kg=90)
+    s = generate_session(Tier.BATFLECK, CyclePosition(2, 1), "seed", history=history, bodyweight_kg=90)  # ramp 0
     top, backoff = s.blocks[1].exercises[:2]
     assert (top.set_role, backoff.set_role) == ("top", "backoff")
     assert top.exercise_id == backoff.exercise_id == "barbell_bench_press"
@@ -175,7 +201,7 @@ def test_gotham_armor_hits_its_weekly_volume_bands():
 
 
 def test_effort_targets_follow_rir():
-    n1 = _sessions(Tier.NORTON_FB, equipment=MACHINE_GYM)[0]
+    n1 = _sessions(Tier.NORTON_FB, 2, equipment=MACHINE_GYM)[0]  # mid-mesocycle: no ramp offset
     power, main = n1.blocks[1], n1.blocks[2]
     assert power.name == "Potência" and power.exercises[0].exercise_id == "box_jump"
     top, backoff = main.exercises[:2]
@@ -231,3 +257,47 @@ def test_days_before_the_first_monday_are_free(client, auth):
         assert client.get(f"/athletes/{a['id']}/nutrition/{today.isoformat()}", headers=auth).status_code == 200
     first = client.get(f"/athletes/{a['id']}/sessions/{start.isoformat()}", headers=auth).json()
     assert first["cycle_day"] == 1 and first["is_training_day"]
+
+
+def test_calibration_set_on_the_last_loading_week_only_on_stations_with_safeties():
+    from knightfall.plateau import CALIBRATION_SAFE
+
+    def flagged(k):
+        return [rx for d in _sessions(Tier.UPPER_LOWER, k, equipment=MACHINE_GYM) for b in d.blocks
+                for rx in b.exercises if rx.amrap_last_set]
+
+    peak = flagged(4)  # week 5 of 6
+    assert peak and all(EXERCISES[rx.exercise_id].implement in CALIBRATION_SAFE for rx in peak)
+    assert all(any("falha técnica" in c for c in rx.cues) for rx in peak)
+    assert not flagged(2) and not flagged(5)  # mid-mesocycle, deload
+    red = ReadinessSummary(score=20, level="red", mobility_expanded=True)
+    assert not [rx for d in _sessions(Tier.UPPER_LOWER, 4, equipment=MACHINE_GYM, readiness=red)
+                for b in d.blocks for rx in b.exercises if rx.amrap_last_set]
+
+
+def test_plateau_notes_one_stalled_lift_and_fatigue_when_several_stall():
+    start = date(2026, 1, 5)
+
+    def flat(ex_id, top):
+        # Best early on, then three sessions below it.
+        loads = [top, top - 5, top - 5, top - 2.5]
+        return [SetRecord(start + timedelta(days=7 * i), ex_id, reps=5, load_kg=kg, rpe=8.5)
+                for i, kg in enumerate(loads)]
+
+    def rising(ex_id, top):
+        return [SetRecord(start + timedelta(days=7 * i), ex_id, reps=5, load_kg=top + 2.5 * i, rpe=8.5)
+                for i in range(4)]
+
+    pos = CyclePosition(2, 1)  # Batfleck day 1: bench top set + back-off; no deload
+    s = generate_session(Tier.BATFLECK, pos, "seed", history=flat("barbell_bench_press", 100), bodyweight_kg=90)
+    note = [n for n in s.notices if "sem recorde" in n]
+    assert len(note) == 1 and note[0].startswith("Supino reto com barra:") and "troque a variação" in note[0]
+    ok = generate_session(Tier.BATFLECK, pos, "seed", history=rising("barbell_bench_press", 100), bodyweight_kg=90)
+    assert not any("sem recorde" in n for n in ok.notices)
+
+    day1 = generate_session(Tier.BATFLECK, pos, "seed")
+    main = [rx.exercise_id for rx in day1.blocks[1].exercises if rx.modality == "strength" and rx.set_role != "backoff"]
+    assert len(set(main)) >= 2, main
+    both = flat(main[0], 100) + flat(next(e for e in main if e != main[0]), 60)
+    tired = generate_session(Tier.BATFLECK, pos, "seed", history=both, bodyweight_kg=90)
+    assert any("antecipar o deload" in n for n in tired.notices)

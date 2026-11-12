@@ -188,12 +188,27 @@ export function DevicesProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // Bumped by reset (sign-out): a connect still awaiting the radio must not revive a device afterwards,
+  // or its readings would be queued under the next account.
+  const generation = useRef(0);
+
   const connectId = useCallback(
     async (id: string, name: string, role: DeviceRole) => {
+      const gen = generation.current;
+      const stale = () => gen !== generation.current;
       await start();
       await BleManager.connect(id);
+      if (stale()) {
+        await bounded(BleManager.disconnect(id));
+        throw new Error('Conexão cancelada');
+      }
       current.current[role] = id;
       await subscribe(id, role);
+      if (stale()) {
+        delete current.current[role];
+        await bounded(BleManager.disconnect(id));
+        throw new Error('Conexão cancelada');
+      }
       setConnected((c) => ({ ...c, [role]: name }));
     },
     [start, subscribe],
@@ -340,6 +355,7 @@ export function DevicesProvider({ children }: { children: ReactNode }) {
   }, [dropRole]);
 
   const reset = useCallback(async () => {
+    generation.current++;
     for (const role of Object.keys(reconnectTimers.current) as DeviceRole[]) {
       clearTimeout(reconnectTimers.current[role]);
       delete reconnectTimers.current[role];

@@ -49,7 +49,7 @@ export function FoodPicker({
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet">
       <SafeAreaView style={styles.root}>
         <Row style={{ justifyContent: 'space-between', padding: space.lg }}>
-          <T variant="display" style={{ fontSize: 24, lineHeight: 30 }}>{MEAL_LABEL[meal]}</T>
+          <T variant="display" style={{ fontSize: 30, lineHeight: 34 }}>{MEAL_LABEL[meal]}</T>
           <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Fechar"
             style={styles.close}>
             <Icon name="close" size={20} color={colors.text} />

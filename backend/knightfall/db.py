@@ -83,6 +83,8 @@ class Athlete(Base):
     # Comma-separated domain.Implement values the athlete has access to; NULL = a full gym.
     equipment: Mapped[str | None] = mapped_column(String(512), nullable=True)
     sleep_target_hours: Mapped[float] = mapped_column(Float, default=8.0)
+    steps_target: Mapped[int] = mapped_column(Integer, default=8000)
+    training_time: Mapped[str | None] = mapped_column(String(5), nullable=True)  # HH:MM local; NULL = not set
     # Comma-separated optional routine items switched on (routine.py); NULL = the defaults.
     routine_items: Mapped[str | None] = mapped_column(String(255), nullable=True)
     nutrition_goal: Mapped[str] = mapped_column(String(8), default="cut")  # nutrition.GOAL_KCAL_PER_LB_LBM
@@ -224,6 +226,17 @@ class BodyMeasurement(Base):
     day: Mapped[date] = mapped_column(Date, primary_key=True)
     site: Mapped[str] = mapped_column(String(16), primary_key=True)
     cm: Mapped[float] = mapped_column(Float)
+
+
+class ExercisePreference(Base):
+    """A standing swap: wherever the plan puts `exercise_id`, the athlete does `replacement_id` instead."""
+
+    __tablename__ = "exercise_preferences"
+
+    athlete_id: Mapped[str] = mapped_column(ForeignKey("athletes.id", ondelete="CASCADE"), primary_key=True)
+    exercise_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    replacement_id: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class WeighIn(Base):

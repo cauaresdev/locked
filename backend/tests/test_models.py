@@ -150,3 +150,43 @@ def test_database_urls_from_hosts_get_the_psycopg_driver():
     assert normalize_url("postgresql://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
     assert normalize_url("postgresql+psycopg://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
     assert normalize_url("sqlite:///./x.db") == "sqlite:///./x.db"
+
+
+def test_last_top_set_prefers_the_rated_set_at_the_top_load():
+    from knightfall.progression import last_top_set
+
+    day = date(2026, 3, 2)
+    sets = [SetRecord(day, "leg_press", reps=10, load_kg=200), SetRecord(day, "leg_press", reps=10, load_kg=200),
+            SetRecord(day, "leg_press", reps=9, load_kg=200, rpe=9)]
+    top = last_top_set(sets, "leg_press")
+    assert top is not None and top.rpe == 9  # only the last set is rated: that one moves the load
+
+
+def test_resting_hr_above_baseline_lowers_readiness():
+    from knightfall.readiness import RhrSignal, rhr_signal
+
+    day = date(2026, 3, 1)
+    base = {day - timedelta(days=i): 52.0 + (i % 2) for i in range(1, 15)}  # ~52.5 bpm
+    assert rhr_signal({**base, day: 54.0}, day).part == 1.0  # within the noise
+    high = rhr_signal({**base, day: 61.0}, day)
+    assert 0 < high.part < 0.5 and "FC de repouso 8 bpm acima" in high.reason
+    assert rhr_signal({**base, day: 70.0}, day).part == 0.0
+    assert rhr_signal({day - timedelta(days=1): 50.0, day: 70.0}, day) is None  # a week of readings first
+    assert rhr_signal(base, day) is None  # nothing today
+    ok = score(ReadinessInputs(sleep_hours=8, soreness=1, rhr=RhrSignal(1.0)))
+    tired = score(ReadinessInputs(sleep_hours=8, soreness=1, rhr=high))
+    assert tired.score < ok.score and any("FC de repouso" in r for r in tired.reasons)
+
+
+def test_resting_hr_reaches_the_readiness_endpoint(client, auth):
+    a = client.post("/athletes", json={"name": "B", "tier": "full_body", "bodyweight_kg": 85}, headers=auth).json()
+    from datetime import datetime, timezone
+
+    today = datetime.now(timezone.utc).date()  # the athlete's timezone defaults to UTC
+    for i in range(10, 0, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        client.put(f"/athletes/{a['id']}/readiness", json={"day": d, "resting_hr": 50, "sleep_hours": 8},
+                   headers=auth)
+    r = client.put(f"/athletes/{a['id']}/readiness",
+                   json={"day": today.isoformat(), "resting_hr": 60, "sleep_hours": 8}, headers=auth).json()
+    assert any("FC de repouso 10 bpm acima" in x for x in r["reasons"]) and r["score"] < 100

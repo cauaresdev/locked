@@ -1,13 +1,14 @@
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View, type TextInput } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View, type TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../api/client';
 import { setToken } from '../auth';
 import { disconnectAllDevices } from '../ble/devices';
 import { Button, Field, T } from '../components/ui';
-import { clearLocalData, localOwner, storeAthlete } from '../storage/db';
+import { localOwner, storeAthlete } from '../storage/db';
+import { wipeDevice } from '../wipe';
 import { colors, space } from '../theme';
 
 export default function Login() {
@@ -34,7 +35,7 @@ export default function Login() {
       const owner = localOwner();
       if (!owner || owner !== auth.athlete_id) {
         await disconnectAllDevices();
-        await clearLocalData();
+        await wipeDevice(); // data and the reminders scheduled from it
       }
       setToken(auth.token);
       if (athlete) {
@@ -54,8 +55,9 @@ export default function Login() {
     <SafeAreaView style={styles.root}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <View style={{ gap: space.xs, marginBottom: space.lg }}>
-            <T variant="display" style={{ fontSize: 40, lineHeight: 46 }}>Knightfall</T>
+          <View style={{ gap: space.sm, marginBottom: space.lg }}>
+            <Image source={require('../../assets/logo.png')} style={styles.logo} accessibilityIgnoresInvertColors />
+            <T variant="display" style={{ fontSize: 52, lineHeight: 54, letterSpacing: 1 }}>KNIGHTFALL</T>
             <T variant="label">{mode === 'login' ? 'Entre na sua conta' : 'Crie sua conta'}</T>
           </View>
           <Field label="E-mail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"
@@ -82,5 +84,6 @@ export default function Login() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: space.xl, gap: space.lg, paddingTop: space.xxl * 3 },
+  content: { padding: space.xl, gap: space.lg, paddingTop: space.xxl * 2 },
+  logo: { width: 56, height: 56, marginBottom: space.sm },
 });

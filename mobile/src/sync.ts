@@ -1,20 +1,24 @@
 import { api, ApiError } from './api/client';
-import type { Session } from './api/types';
+import type { Routine, Session } from './api/types';
 import { deliver, isRejection } from './engine/deliver';
 import { addDays } from './engine/format';
+import { withCheck } from './engine/routine';
 import {
+  cacheSchedule,
   cacheSession,
   cachedSession,
   pendingFood,
   pendingFoodDeletes,
   pendingLogDeletes,
   pendingLogs,
+  pendingRoutineChecks,
   pendingTelemetry,
   quarantine,
   removeFood,
   removeFoodDelete,
   removeLogDelete,
   removeLogs,
+  removeRoutineCheck,
   removeTelemetry,
   storeAthlete,
 } from './storage/db';
@@ -42,7 +46,7 @@ export async function prefetchSchedule(athleteId: string, today: string, cycleSt
   const first = cycleStart > today ? cycleStart : today;
   try {
     const sessions = await api.schedule(athleteId, first, PREFETCH_DAYS);
-    await Promise.all(sessions.map((s, i) => cacheSession(addDays(first, i), s, false)));
+    await cacheSchedule(sessions.map((session, i) => ({ day: addDays(first, i), session })));
     return true;
   } catch {
     return false;
@@ -194,6 +198,31 @@ export async function flushNutrition(athleteId: string): Promise<void> {
   await flushFoodDeletes(athleteId);
 }
 
+/**
+ * Routine ticks made offline, oldest first. A tick the server refuses (item switched off, day out of range)
+ * is dropped: it can never succeed. Any other failure stops and keeps the rest queued.
+ */
+export function flushRoutine(athleteId: string): Promise<number> {
+  return singleFlight(`routine:${athleteId}`, async () => {
+    let sent = 0;
+    for (const check of pendingRoutineChecks()) {
+      try {
+        await api.setRoutineItem(athleteId, check.day, check.item, check.body);
+        sent += 1;
+      } catch (e) {
+        if (!isRejection(e) && !gone(e)) return sent;
+      }
+      removeRoutineCheck(check);
+    }
+    return sent;
+  });
+}
+
+/** The server's routine with the ticks still queued on this device applied on top. */
+export function withPendingChecks(r: Routine): Routine {
+  return pendingRoutineChecks(r.day).reduce((acc, c) => withCheck(acc, c.item, c.body), r);
+}
+
 export async function flushAll(athleteId: string): Promise<void> {
   await singleFlight(`all:${athleteId}`, async () => {
     await flushOutbox(athleteId);
@@ -201,6 +230,7 @@ export async function flushAll(athleteId: string): Promise<void> {
     await flushFood(athleteId);
     await flushFoodDeletes(athleteId);
     await flushTelemetry(athleteId);
+    await flushRoutine(athleteId);
     return 0;
   });
 }

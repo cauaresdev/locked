@@ -1,4 +1,4 @@
-import { isRecord, pctOf1rm, platesPerSide, sessionSummary, setE1rm } from '../athlete';
+import { isRecord, pctOf1rm, platesPerSide, repeatLabel, rpeRequired, sessionSummary, setE1rm } from '../athlete';
 
 test('e1RM matches the server chart', () => {
   expect(pctOf1rm(1, 10)).toBe(1);
@@ -30,4 +30,18 @@ test('session summary', () => {
     { exercise: 'Paralelas', reps: 10, load_kg: null, rpe: 8, record: false },
   ]);
   expect(s).toEqual({ sets: 3, volumeKg: 1140, records: ['Supino'] });
+});
+
+test('effort is required on the last set only', () => {
+  expect(rpeRequired({ target_rpe: 8, sets: 3 }, 1)).toBe(false);
+  expect(rpeRequired({ target_rpe: 8, sets: 3 }, 3)).toBe(true);
+  expect(rpeRequired({ target_rpe: 8.5, sets: 1 }, 1)).toBe(true); // a top set is its own last set
+  expect(rpeRequired({ target_rpe: null, sets: 3 }, 3)).toBe(false); // power, cardio: no effort target
+});
+
+test('repeat label shows the previous load and reps', () => {
+  const set = { exercise: 'Leg press', reps: 10, load_kg: 82.5, rpe: null, record: false };
+  expect(repeatLabel(set, true)).toBe('82,5 kg × 10');
+  expect(repeatLabel(set, false)).toBe('× 10');
+  expect(repeatLabel({ ...set, reps: null, load_kg: null }, true)).toBeNull();
 });

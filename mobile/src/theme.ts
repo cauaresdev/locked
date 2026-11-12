@@ -17,9 +17,10 @@ export const colors = {
   warningFill: '#2A1C10', // banner background behind warning text
 } as const;
 
-// Only big numbers (timers, metrics) use the monospace face, for tabular figures; all other
-// text uses the system sans-serif.
+// Screen titles and the day's workout name use the condensed display face; big numbers (timers,
+// metrics) the monospace one, for tabular figures; everything else the system sans-serif.
 export const fonts = {
+  display: 'BarlowCondensed_700Bold',
   mono: 'JetBrainsMono_400Regular',
   monoBold: 'JetBrainsMono_700Bold',
 } as const;

@@ -7,13 +7,15 @@ import { api } from '../../api/client';
 import type { Progress, ReadinessLevel } from '../../api/types';
 import { BarChart, ChartCard, LineChart, StatTile, type Bar } from '../../components/charts';
 import { MeasurementsCard } from '../../components/Measurements';
-import { Badge, Chip, Panel, Row, ScreenHeader, T } from '../../components/ui';
+import { Badge, Chip, FadeIn, Panel, Row, ScreenHeader, Skeleton, T } from '../../components/ui';
 import { shortDay } from '../../engine/chart';
-import { decimal, formatKgM } from '../../engine/format';
-import { storedAthlete, storedProgressReport, storeProgressReport } from '../../storage/db';
+import { decimal, formatKgM, isoDay } from '../../engine/format';
+import { weeklyReview, type Goal } from '../../engine/review';
+import { cachedRoutine, storedAthlete, storedProgressReport, storeProgressReport } from '../../storage/db';
 import { colors, levelColor, radius, space } from '../../theme';
 
 const RANGES = [30, 60, 90] as const;
+const STALE_MS = 60_000;
 const DEFAULT_RANGE = 60;
 const LEVEL_LABEL: Record<ReadinessLevel, string> = { green: 'verde', amber: 'amarelo', red: 'vermelho' };
 const kg = (v: number) => `${decimal(v)} kg`;
@@ -28,8 +30,14 @@ export default function ProgressScreen() {
   const [lift, setLift] = useState<string | null>(null);
   const run = useRef(0); // only the latest range may write state: a slow 90-day reply must not land under "30 dias"
 
-  const load = useCallback(async () => {
+  // A tab switch within a minute reuses the report on screen; pull-to-refresh always fetches.
+  const fetched = useRef<{ days: number; at: number } | null>(null);
+
+  const load = useCallback(async (force = false) => {
     if (!athleteId) return;
+    const f = fetched.current;
+    if (!force && f && f.days === days && Date.now() - f.at < STALE_MS) return;
+    fetched.current = { days, at: Date.now() };
     const id = ++run.current;
     const live = () => id === run.current;
     setLoading(true);
@@ -41,6 +49,7 @@ export default function ProgressScreen() {
       setOffline(false);
     } catch {
       if (!live()) return;
+      fetched.current = null; // offline: try again on the next visit
       setOffline(true);
     } finally {
       if (live()) setLoading(false);
@@ -65,7 +74,7 @@ export default function ProgressScreen() {
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.textMuted} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => load(true)} tintColor={colors.textMuted} />}
       >
         <ScreenHeader title="Progresso" right={offline ? <Badge label="Dados salvos" color={colors.warning} /> : undefined} />
 
@@ -77,23 +86,78 @@ export default function ProgressScreen() {
         </Row>
 
         {!data ? (
-          <T color={colors.textMuted}>{loading ? 'Carregando…' : 'Sem dados ainda. Abra com conexão.'}</T>
+          loading ? (
+            <View style={{ gap: space.lg }} accessible accessibilityLabel="Carregando progresso">
+              <Skeleton height={120} />
+              <Skeleton height={90} />
+              <Skeleton height={200} />
+            </View>
+          ) : (
+            <T color={colors.textMuted}>Sem dados ainda. Abra com conexão.</T>
+          )
         ) : (
           <View style={{ gap: space.lg, opacity: loading ? 0.6 : 1 }}>
-            <Summary data={data} />
-            <StrengthCard data={data} lift={lift} onLift={setLift} />
-            <MuscleVolumeCard data={data} />
-            <WeightCard data={data} />
-            <MeasurementsCard athleteId={athleteId} />
-            <ReadinessCard data={data} />
-            <SleepAndHrv data={data} />
-            <ArmorCard data={data} />
-            <DietCard data={data} />
-            <AttendanceCard data={data} />
+            {[
+              <ReviewCard key="review" data={data} />,
+              <Summary key="summary" data={data} />,
+              <StrengthCard key="strength" data={data} lift={lift} onLift={setLift} />,
+              <MuscleVolumeCard key="volume" data={data} />,
+              <WeightCard key="weight" data={data} />,
+              <MeasurementsCard key="measures" athleteId={athleteId} />,
+              <ReadinessCard key="readiness" data={data} />,
+              <SleepAndHrv key="sleep" data={data} />,
+              <ArmorCard key="armor" data={data} />,
+              <DietCard key="diet" data={data} />,
+              <AttendanceCard key="attendance" data={data} />,
+            ].map((card, i) => (
+              // Only the first screenful staggers; the rest is below the fold anyway.
+              <FadeIn key={card.key} delay={Math.min(i, 4) * 60}>{card}</FadeIn>
+            ))}
           </View>
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/** The last 7 days in a few numbers and at most three things to change. */
+function ReviewCard({ data }: { data: Progress }) {
+  const athlete = storedAthlete();
+  if (!athlete) return null;
+  const today = isoDay();
+  const review = weeklyReview(data, {
+    today,
+    sleepTargetHours: athlete.sleep_target_hours,
+    goal: athlete.nutrition_goal as Goal,
+    bedtime: cachedRoutine(today)?.bedtime,
+  });
+  if (!review.stats.length) return null;
+  return (
+    <Panel style={{ gap: space.md }}>
+      <View style={{ gap: 2 }}>
+        <T variant="title">Revisão da semana</T>
+        <T variant="label">{shortDay(review.from)} a {shortDay(review.to)}</T>
+      </View>
+      <View style={{ gap: space.xs }}>
+        {review.stats.map((s) => (
+          <Row key={s.label} style={{ justifyContent: 'space-between' }}>
+            <T variant="label">{s.label}</T>
+            <T variant="label" color={s.ok === false ? colors.warning : s.ok ? colors.success : colors.text}>
+              {s.value}
+            </T>
+          </Row>
+        ))}
+      </View>
+      <View style={{ gap: space.sm }}>
+        <T variant="label" color={colors.text}>Para a próxima semana</T>
+        {review.actions.map((a, i) => (
+          <Row key={i} style={{ alignItems: 'flex-start' }}>
+            <T variant="label" color={colors.accent}>{i + 1}.</T>
+            <T variant="hint" style={{ flex: 1 }}>{a}</T>
+          </Row>
+        ))}
+      </View>
+    </Panel>
   );
 }
 

@@ -131,3 +131,34 @@ def test_tiers_list_the_new_programs(client, auth):
     tiers = {t["tier"]: t for t in client.get("/tiers", headers=auth).json()}
     assert {"full_body", "upper_lower", "push_pull_legs", "batfleck"} <= set(tiers)
     assert tiers["batfleck"]["name"] == "Batfleck" and tiers["batfleck"]["sessions_per_cycle"] == 5
+
+
+def test_steps_come_from_the_watch_and_follow_the_target(client, auth):
+    a = make_athlete(client, auth, steps_target=10000)
+    assert a["steps_target"] == 10000
+    steps = next(i for i in get(client, auth, a, today())["items"] if i["id"] == "steps")
+    assert (steps["kind"], steps["title"], steps["value"], steps["target"], steps["done"]) == (
+        "steps", "10.000 passos", None, 10000, False)
+    r = tick(client, auth, a, today(), "steps", value=7400).json()
+    steps = next(i for i in r["items"] if i["id"] == "steps")
+    assert (steps["value"], steps["done"], steps["detail"]) == (7400, False, "7.400 de 10.000 pelo relógio ou celular")
+    r = tick(client, auth, a, today(), "steps", value=12850).json()
+    assert next(i for i in r["items"] if i["id"] == "steps")["done"] is True
+    assert next(i for i in r["items"] if i["id"] == "steps")["auto"] is True
+    client.patch(f"/athletes/{a['id']}", json={"steps_target": 15000}, headers=auth)
+    assert next(i for i in get(client, auth, a, today())["items"] if i["id"] == "steps")["done"] is False
+    # Water keeps its own cap, and a plain check takes no value.
+    assert tick(client, auth, a, today(), "water", value=20000).status_code == 422
+    assert tick(client, auth, a, today(), "sunlight", value=3).status_code == 422
+
+
+def test_training_time_is_kept_and_shown_on_the_training_item(client, auth):
+    a = make_athlete(client, auth)  # full body: day 1 trains
+    assert a["training_time"] is None
+    r = client.patch(f"/athletes/{a['id']}", json={"training_time": "18:30"}, headers=auth)
+    assert r.json()["training_time"] == "18:30"
+    item = next(i for i in get(client, auth, a, today())["items"] if i["id"] == "training")
+    assert item["title"] == "Treino do dia · 18:30"
+    assert client.patch(f"/athletes/{a['id']}", json={"training_time": "25:00"}, headers=auth).status_code == 422
+    cleared = client.patch(f"/athletes/{a['id']}", json={"training_time": None}, headers=auth).json()
+    assert cleared["training_time"] is None

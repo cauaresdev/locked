@@ -15,6 +15,7 @@ from ..db import (
     AuthToken,
     BodyMeasurement,
     EarlyBirdRun,
+    ExercisePreference,
     FoodEntry,
     ReadinessEntry,
     RoutineCheck,
@@ -104,7 +105,7 @@ def me(user: CurrentUser, s: Db) -> AthleteOut | None:
 # --- LGPD: data portability and erasure ------------------------------------------
 
 ATHLETE_TABLES = (SetLog, ReadinessEntry, TelemetrySample, FoodEntry, SupplementIntake, EarlyBirdRun, WeighIn,
-                  RoutineCheck, BodyMeasurement)
+                  RoutineCheck, BodyMeasurement, ExercisePreference)
 
 
 def _json(v) -> str:

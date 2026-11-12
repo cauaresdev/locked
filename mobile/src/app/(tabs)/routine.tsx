@@ -4,6 +4,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-n
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../api/client';
+import { isRejection } from '../../engine/deliver';
 import type { Athlete, Routine, RoutineCheck, RoutineItem } from '../../api/types';
 import { GuidedRoutine } from '../../components/GuidedRoutine';
 import { Icon } from '../../components/Icon';
@@ -12,32 +13,47 @@ import {
   Button,
   Checkbox,
   Chip,
+  CountUp,
   Dots,
+  FadeIn,
+  Field,
   ListRow,
   Panel,
   ProgressBar,
   Row,
   ScreenHeader,
   Section,
+  Skeleton,
   T,
   TextLink,
 } from '../../components/ui';
-import { isoDay } from '../../engine/format';
+import { parseTime } from '../../engine/format';
+import { useToday } from '../../hooks/useToday';
 import { routineSummary, SECTION_TITLE, withCheck } from '../../engine/routine';
-import { cancelRoutineReminders, scheduleRoutineReminders } from '../../notifications';
+import { cancelRoutineReminders, requestNotificationPermission, scheduleRoutineReminders } from '../../notifications';
+import { refreshTrainingReminders } from '../../reminders';
 import {
   cachedRoutine,
+  healthSyncEnabled,
+  pendingRoutineChecks,
+  removeRoutineCheck,
+  queueRoutineCheck,
   routineRemindersEnabled,
   setRoutineRemindersEnabled,
   storeAthlete,
   storedAthlete,
   storeRoutine,
 } from '../../storage/db';
+import { syncSteps } from '../../health';
+import { flushRoutine, withPendingChecks } from '../../sync';
 import { colors, radius, space } from '../../theme';
 
 const WEEKDAY = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 const SLEEP_TARGETS = [7, 7.5, 8, 8.5, 9];
+const STEP_TARGETS = [6000, 8000, 10000, 12000];
 const SECTIONS = ['morning', 'day', 'night'] as const;
+
+const OFFLINE_TICKS = 'Sem conexão: marcações salvas no aparelho. Elas sobem quando a internet voltar.';
 
 function hours(h: number): string {
   return `${String(h).replace('.', ',')} h`;
@@ -46,29 +62,33 @@ function hours(h: number): string {
 export default function RoutineScreen() {
   const router = useRouter();
   const [athlete, setAthlete] = useState<Athlete | null>(storedAthlete());
-  const day = isoDay();
+  const day = useToday();
   const [routine, setRoutine] = useState<Routine | null>(() => cachedRoutine(day));
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [guided, setGuided] = useState(false);
-  const [reminders, setReminders] = useState(routineRemindersEnabled());
+  const [reminders, setReminders] = useState(routineRemindersEnabled);
   const run = useRef(0); // a slow response must not overwrite a newer tick
   const athleteId = athlete?.id;
 
+  // Ticks still queued on the device stay ticked over whatever the server last knew.
   const show = useCallback((r: Routine) => {
-    setRoutine(r);
-    storeRoutine(r);
+    const view = withPendingChecks(r);
+    setRoutine(view);
+    storeRoutine(view);
   }, []);
 
   const load = useCallback(async () => {
     if (!athleteId) return;
     const id = ++run.current;
     try {
-      const r = await api.routine(athleteId, day);
+      if (pendingRoutineChecks().length) await flushRoutine(athleteId);
+      const counted = healthSyncEnabled() ? await syncSteps(athleteId, day).catch(() => null) : null;
+      const r = counted ?? await api.routine(athleteId, day);
       if (id !== run.current) return;
       show(r);
-      setError(null);
+      setError(pendingRoutineChecks(day).length ? OFFLINE_TICKS : null);
     } catch {
       if (id === run.current) setError('Sem conexão: mostrando a última versão salva.');
     }
@@ -86,14 +106,25 @@ export default function RoutineScreen() {
     if (!athleteId || !routine) return;
     const before = routine;
     const id = ++run.current;
-    setRoutine(withCheck(routine, item.id, body)); // instant; the server's answer replaces it
+    const optimistic = withCheck(routine, item.id, body);
+    setRoutine(optimistic); // instant; the server's answer replaces it
+    // The tick queued before this request is superseded by it; one queued while it was in flight is newer.
+    const superseded = pendingRoutineChecks(day).find((c) => c.item === item.id);
     try {
       const r = await api.setRoutineItem(athleteId, day, item.id, body);
+      if (superseded) removeRoutineCheck(superseded);
       if (id === run.current) show(r);
-      setError(null);
-    } catch {
-      if (id === run.current) setRoutine(before);
-      setError('Não salvou: sem conexão. Tente de novo quando a internet voltar.');
+      setError(pendingRoutineChecks(day).length ? OFFLINE_TICKS : null);
+    } catch (e) {
+      if (isRejection(e)) {
+        if (id === run.current) setRoutine(before);
+        setError('O servidor recusou esta marcação.');
+        return;
+      }
+      // Offline (the gym basement): keep the tick on the device and send it with the next sync.
+      queueRoutineCheck({ day, item: item.id, body });
+      storeRoutine(optimistic);
+      setError(OFFLINE_TICKS);
     }
   }
 
@@ -108,6 +139,10 @@ export default function RoutineScreen() {
       setError(null);
       // New sleep target: bedtime and screens-off move, so do their reminders.
       if (reminders) await scheduleRoutineReminders(a.wake_time, r.screens_off, r.bedtime);
+      if ('training_time' in body) {
+        if (a.training_time) await requestNotificationPermission();
+        await refreshTrainingReminders(a, day);
+      }
     } catch {
       setError('Não salvou: sem conexão. Tente de novo quando a internet voltar.');
     }
@@ -154,15 +189,21 @@ export default function RoutineScreen() {
         {error && <Panel accent={colors.warning}><T color={colors.warning}>{error}</T></Panel>}
 
         {!routine ? (
-          <T variant="label">Carregando…</T>
+          <View style={{ gap: space.lg }} accessible accessibilityLabel="Carregando rotina">
+            <Skeleton height={150} />
+            <Skeleton height={20} width="40%" />
+            <Skeleton height={180} />
+          </View>
         ) : (
           <>
+            <FadeIn>
             <Panel accent={routine.complete ? colors.success : undefined} style={{ gap: space.md }}>
               <Row style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
                 <View accessible accessibilityLabel={`${routine.done} de ${routine.total} hábitos feitos hoje`}>
-                  <T variant="hero" color={routine.complete ? colors.success : colors.text}>
-                    {routine.done}/{routine.total}
-                  </T>
+                  <Row style={{ alignItems: 'baseline', gap: 0 }}>
+                    <CountUp variant="hero" value={routine.done} color={routine.complete ? colors.success : colors.text} />
+                    <T variant="hero" color={colors.textFaint}>/{routine.total}</T>
+                  </Row>
                   <T variant="label">{summary?.headline}</T>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 2 }}>
@@ -192,13 +233,15 @@ export default function RoutineScreen() {
                 })}
               </Row>
             </Panel>
+            </FadeIn>
 
-            {SECTIONS.map((section) => {
+            {SECTIONS.map((section, si) => {
               const items = routine.items.filter((i) => i.section === section);
               if (!items.length) return null;
               const done = items.filter((i) => i.done).length;
               return (
-                <Section key={section} title={SECTION_TITLE[section]}
+                <FadeIn key={section} delay={(si + 1) * 60}>
+                <Section title={SECTION_TITLE[section]}
                   right={<View accessible accessibilityLabel={`${done} de ${items.length}`}><Dots done={done} total={items.length} color={colors.success} /></View>}>
                   <Panel style={{ gap: space.xs, paddingVertical: space.sm }}>
                     {items.map((item) => item.kind === 'water'
@@ -219,13 +262,15 @@ export default function RoutineScreen() {
                     />
                   )}
                 </Section>
+                </FadeIn>
               );
             })}
 
             <Section title="Lembretes">
               <Panel style={{ gap: space.md }}>
                 <T variant="hint">
-                  Água três vezes ao dia, telas desligadas às {routine.screens_off} e cama às {routine.bedtime}.
+                  Água três vezes ao dia, telas desligadas às {routine.screens_off}, cama às {routine.bedtime} e a
+                  revisão da semana no domingo.
                 </T>
                 <Button tone={reminders ? 'secondary' : 'primary'} icon="bell"
                   label={reminders ? 'Desligar lembretes' : 'Ativar lembretes'} onPress={toggleReminders} />
@@ -236,6 +281,26 @@ export default function RoutineScreen() {
               right={<TextLink label={editing ? 'Fechar' : 'Editar'} onPress={() => setEditing(!editing)} />}>
               {editing ? (
                 <Panel style={{ gap: space.lg }}>
+                  <View style={{ gap: space.sm }}>
+                    <T variant="label">Horário de treino</T>
+                    <TrainingTime value={athlete.training_time ?? null}
+                      onSave={(t) => saveProfile({ training_time: t })} />
+                    <T variant="hint">
+                      Nos dias de treino: aviso da refeição pré-treino 1 h 30 antes e do treino 15 min antes.
+                    </T>
+                  </View>
+                  <View style={{ gap: space.sm }}>
+                    <T variant="label">Meta de passos</T>
+                    <Row style={{ flexWrap: 'wrap', gap: space.sm }}>
+                      {STEP_TARGETS.map((n) => (
+                        <Chip key={n} label={n.toLocaleString('pt-BR')} selected={athlete.steps_target === n}
+                          onPress={() => saveProfile({ steps_target: n })} />
+                      ))}
+                    </Row>
+                    <T variant="hint">
+                      Com a saúde ativa em Perfil, os passos vêm do relógio ou do celular e o item marca sozinho.
+                    </T>
+                  </View>
                   <View style={{ gap: space.sm }}>
                     <T variant="label">Meta de sono</T>
                     <Row style={{ flexWrap: 'wrap', gap: space.sm }}>
@@ -282,6 +347,19 @@ export default function RoutineScreen() {
         }}
       />
     </SafeAreaView>
+  );
+}
+
+function TrainingTime({ value, onSave }: { value: string | null; onSave: (t: string | null) => void }) {
+  const [text, setText] = useState(value ?? '');
+  const parsed = parseTime(text);
+  return (
+    <Row style={{ alignItems: 'flex-end' }}>
+      <Field label="HH:MM" value={text} onChangeText={setText} placeholder="18:00" keyboardType="numbers-and-punctuation"
+        maxLength={5} />
+      <Button tone="secondary" label="Salvar" disabled={!parsed || parsed === value} onPress={() => onSave(parsed)} />
+      {value && <Button tone="secondary" label="Remover" onPress={() => { setText(''); onSave(null); }} />}
+    </Row>
   );
 }
 

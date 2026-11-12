@@ -36,7 +36,8 @@ def day_type(a: Athlete, day: date) -> routine.DayType:
 
 def _settings(a: Athlete) -> routine.Settings:
     return routine.Settings(a.wake_time, a.sleep_target_hours, a.bodyweight_kg,
-                            routine.enabled_items(a.routine_items), a.nutrition_goal)
+                            routine.enabled_items(a.routine_items), a.nutrition_goal, a.steps_target,
+                            a.training_time)
 
 
 def _routine(s: Db, a: Athlete, day: date) -> RoutineOut:
@@ -117,6 +118,10 @@ def put_routine_item(day: Day, item_id: str, body: RoutineCheckIn, a: AthleteDep
         raise HTTPException(422, f"only the last {EDITABLE_DAYS} days can be edited")
     if item.kind == "water" and body.value is None:
         raise HTTPException(422, "water takes a value in ml")
+    if item.kind == "water" and body.value is not None and body.value > routine.WATER_MAX_ML:
+        raise HTTPException(422, f"water is capped at {routine.WATER_MAX_ML} ml a day")
+    if item.kind == "check" and body.value is not None:
+        raise HTTPException(422, f"{item_id} takes done, not a value")
     row = s.get(RoutineCheck, (a.id, day, item_id))
     if row is None:
         row = RoutineCheck(athlete_id=a.id, day=day, item_id=item_id, done=False)

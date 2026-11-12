@@ -117,7 +117,7 @@ export default function Scan() {
   return (
     <SafeAreaView style={styles.root}>
       <Row style={{ justifyContent: 'space-between', padding: space.lg }}>
-        <T variant="display" style={{ fontSize: 24, lineHeight: 30 }}>Scanner</T>
+        <T variant="display" style={{ fontSize: 30, lineHeight: 34 }}>Scanner</T>
         <Row style={{ gap: space.sm }}>
           {!code && (
             <Pressable onPress={() => setTorch((t) => !t)} hitSlop={8} accessibilityRole="switch"

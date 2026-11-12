@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Prescription } from '../api/types';
-import { loadsPlates, platesPerSide } from '../engine/athlete';
+import { loadsPlates, platesPerSide, repeatLabel, rpeRequired, type LoggedSet } from '../engine/athlete';
 import { clock, parseDecimal as num, repsToLog, workSeconds } from '../engine/format';
 import { PHASE_LABEL } from '../engine/tempo';
 import { useCountdown } from '../hooks/useCountdown';
@@ -25,37 +25,45 @@ const RPE_HALF = [6.5, 7.5, 8.5, 9.5];
 const UNLOADED = new Set<Prescription['implement']>(['bodyweight', 'band', 'roller', 'ergometer']);
 const fmt = (n: number) => String(n).replace('.', ',');
 
+
 /** Executes and logs one set: metronome for tempo work, countdown for timed/hold work. */
 export function SetRunner({
   rx,
   setNumber,
   defaultLoad,
+  previous = null,
   prep = false,
   onLog,
 }: {
   rx: Prescription;
   setNumber: number;
   defaultLoad: number | null;
+  previous?: LoggedSet | null; // the set just logged for this exercise in this session
   prep?: boolean; // preparation block: no effort rating, and no load unless something is held
   onLog: (r: SetResult) => void | Promise<void>;
 }) {
-  const [reps, setReps] = useState(String(repsToLog(rx) ?? ''));
+  // The next set usually repeats the last one: start from what was done, not from the plan.
+  const [reps, setReps] = useState(String(previous?.reps ?? repsToLog(rx) ?? ''));
   // Bodyweight lifts log added load; 0 still counts for e1RM (body mass is added server-side).
   const initialLoad = defaultLoad ?? (rx.implement === 'bodyweight' ? 0 : null);
   const [load, setLoad] = useState(initialLoad != null ? fmt(initialLoad) : '');
   // Never pre-filled with the target: an untouched default would log the plan instead of
   // the effort, and every load suggestion is computed from these ratings.
-  const [rpe, setRpe] = useState<number | null>(null);
+  // ...except the calibration set: going to technical failure is effort 10 by definition.
+  const amrap = rx.amrap_last_set && setNumber >= rx.sets;
+  const [rpe, setRpe] = useState<number | null>(amrap ? 10 : null);
   const timed = rx.mode === 'timed' || rx.mode === 'hold';
   const distance = rx.mode === 'distance';
-  const needsRpe = rx.target_rpe != null;
+  const needsRpe = !prep && rpeRequired(rx, setNumber);
   const showLoad = !prep || !UNLOADED.has(rx.implement);
   const range = rx.reps_max ? ` (${repsToLog(rx)}–${rx.reps_max})` : '';
+  const repeat = !prep && previous ? repeatLabel(previous, showLoad) : null;
 
   return (
     <Panel style={{ gap: space.md }}>
       <T variant="title" style={{ fontSize: 16 }}>
         Série {setNumber}/{rx.sets}{rx.set_role === 'top' ? ' · top set' : rx.set_role === 'backoff' ? ' · back-off' : ''}
+        {amrap ? ' · até a falha técnica' : ''}
         {distance ? ` · ${rx.distance_m} m` : ''}
       </T>
       {rx.tempo && rx.mode === 'reps' && <Metronome rx={rx} />}
@@ -69,7 +77,7 @@ export function SetRunner({
       )}
       <Row style={{ alignItems: 'flex-end' }}>
         {!timed && !distance && (
-          <Field label={(rx.reps_per_side ? 'Repetições por lado' : 'Repetições') + range} value={reps}
+          <Field label={(rx.reps_per_side ? 'Repetições por lado' : 'Repetições') + (amrap ? ' (máximo)' : range)} value={reps}
             onChangeText={setReps} keyboardType="number-pad" />
         )}
         {showLoad && (
@@ -78,9 +86,9 @@ export function SetRunner({
         )}
       </Row>
       {showLoad && loadsPlates(rx.implement) && <Plates kg={num(load)} implement={rx.implement} />}
-      {!prep && <RpePicker value={rpe} target={rx.target_rpe} onChange={setRpe} />}
+      {!prep && <RpePicker value={rpe} target={rx.target_rpe} required={needsRpe} onChange={setRpe} />}
       <Button
-        label={needsRpe && rpe == null ? 'Escolha o esforço' : 'Registrar série'}
+        label={needsRpe && rpe == null ? 'Escolha o esforço da última série' : 'Registrar série'}
         disabled={needsRpe && rpe == null}
         onPress={() =>
           onLog({
@@ -92,9 +100,28 @@ export function SetRunner({
           })
         }
       />
+      {repeat && (
+        <Button
+          tone="secondary"
+          icon="repeat"
+          label={`Repetir anterior · ${repeat}`}
+          accessibilityHint="Registra esta série com a mesma carga e repetições da anterior"
+          disabled={needsRpe && rpe == null}
+          onPress={() =>
+            onLog({
+              reps: timed || distance ? null : (previous?.reps ?? null),
+              load_kg: showLoad ? (previous?.load_kg ?? null) : null,
+              duration_seconds: timed ? workSeconds(rx) : null,
+              distance_m: distance ? rx.distance_m : null,
+              rpe,
+            })
+          }
+        />
+      )}
     </Panel>
   );
 }
+
 
 /** Last time this lift was done, and the best estimate to beat. */
 function History({ rx }: { rx: Prescription }) {
@@ -130,7 +157,9 @@ function Plates({ kg, implement }: { kg: number | null; implement: Prescription[
 }
 
 /** Rate of perceived exertion, anchored on reps in reserve so the scale means the same every set. */
-function RpePicker({ value, target, onChange }: { value: number | null; target: number | null; onChange: (v: number) => void }) {
+function RpePicker({ value, target, required, onChange }: {
+  value: number | null; target: number | null; required: boolean; onChange: (v: number) => void;
+}) {
   const key = (v: number, caption?: string, half?: boolean) => {
     const on = value === v;
     return (
@@ -147,7 +176,7 @@ function RpePicker({ value, target, onChange }: { value: number | null; target: 
   return (
     <View style={{ gap: space.xs }} accessibilityRole="radiogroup">
       <T variant="label">
-        Esforço percebido (RPE){target != null ? ` · alvo ${fmt(target)}` : ''}
+        Esforço percebido (RPE){target != null ? ` · alvo ${fmt(target)}` : ''}{required ? '' : ' · opcional nesta série'}
       </T>
       <View style={styles.rpeRow}>{RPE_WHOLE.map(([v, caption]) => key(v, caption))}</View>
       {/* Inset by half a key, so each half step lands between the two whole steps it splits. */}

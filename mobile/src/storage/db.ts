@@ -7,6 +7,7 @@ import type {
   NutritionDay,
   Progress as ProgressReport,
   Routine,
+  RoutineCheck,
   Session,
   SetLog,
   TelemetrySample,
@@ -66,24 +67,35 @@ function write<T>(fn: () => Promise<T>): Promise<T> {
 const txn = (fn: () => Promise<void>) => write(() => db.withTransactionAsync(fn));
 const marks = (n: number) => Array.from({ length: n }, () => '?').join(',');
 
+// One statement per day, so a schedule prefetch racing a live fetch can never clobber the
+// live (readiness-adjusted) session for the same day.
+const UPSERT_SESSION = `INSERT INTO sessions (day, json, live, fetched_at) VALUES (?, ?, ?, ?)
+  ON CONFLICT(day) DO UPDATE SET json = excluded.json, live = excluded.live, fetched_at = excluded.fetched_at
+  WHERE excluded.live = 1 OR sessions.live = 0`;
+
 export async function cacheSession(day: string, session: Session, live: boolean): Promise<void> {
-  // One statement, so a schedule prefetch racing a live fetch can never clobber the
-  // live (readiness-adjusted) session for the same day.
+  await write(() => db.runAsync(UPSERT_SESSION, day, JSON.stringify(session), live ? 1 : 0, Date.now()));
+}
+
+/** A prefetched schedule in one write: one transaction instead of a queued write per day. */
+export async function cacheSchedule(days: { day: string; session: Session }[]): Promise<void> {
+  if (!days.length) return;
+  const now = Date.now();
   await write(() =>
-    db.runAsync(
-      `INSERT INTO sessions (day, json, live, fetched_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(day) DO UPDATE SET json = excluded.json, live = excluded.live, fetched_at = excluded.fetched_at
-       WHERE excluded.live = 1 OR sessions.live = 0`,
-      day,
-      JSON.stringify(session),
-      live ? 1 : 0,
-      Date.now(),
-    ),
+    db.withTransactionAsync(async () => {
+      for (const { day, session } of days) await db.runAsync(UPSERT_SESSION, day, JSON.stringify(session), 0, now);
+    }),
   );
 }
 
+// Bumped whenever the cached sessions are thrown away (program, equipment or cycle changed): screens that
+// keep a session in memory compare it to know their copy is stale.
+let sessionEpoch = 0;
+export const sessionCacheEpoch = () => sessionEpoch;
+
 /** Drop cached sessions (e.g. after the cycle was shifted), keeping in-session progress. */
 export async function clearSessionCache(): Promise<void> {
+  sessionEpoch++;
   await write(() => db.runAsync('DELETE FROM sessions'));
 }
 
@@ -151,20 +163,14 @@ export async function removeLogDelete(id: string): Promise<void> {
   await write(() => db.runAsync('DELETE FROM log_deletes WHERE id = ?', id));
 }
 
-export async function pendingCount(): Promise<number> {
-  await migrate();
-  const row = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM outbox');
-  return row?.n ?? 0;
-}
-
-/** Everything still waiting to upload: set logs, food entries, deletes and telemetry batches. */
+/** Everything still waiting to upload: set logs, food entries, deletes, telemetry batches and routine ticks. */
 export async function pendingTotal(): Promise<number> {
   await migrate();
   const row = await db.getFirstAsync<{ n: number }>(
     `SELECT (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM food_outbox) + (SELECT COUNT(*) FROM telemetry_outbox)
           + (SELECT COUNT(*) FROM log_deletes) + (SELECT COUNT(*) FROM food_deletes) AS n`,
   );
-  return row?.n ?? 0;
+  return (row?.n ?? 0) + pendingRoutineChecks().length;
 }
 
 export async function loadProgress(day: string): Promise<Progress> {
@@ -272,6 +278,9 @@ export async function rejectedCount(): Promise<number> {
 }
 
 /** Wipes everything tied to the signed-in user (the owner marker stays, see localOwner). */
+/** Body measurements cached by the Progresso card (Measurements.tsx). */
+export const MEASUREMENTS_KEY = 'measurements';
+
 export async function clearLocalData(): Promise<void> {
   await write(() =>
     db.withTransactionAsync(() =>
@@ -281,7 +290,8 @@ export async function clearLocalData(): Promise<void> {
       `),
     ),
   );
-  for (const key of [ATHLETE_KEY, DEVICES_KEY, HEALTH_KEY, PROGRESS_KEY, ROUTINE_KEY, REMINDERS_KEY]) {
+  for (const key of [ATHLETE_KEY, DEVICES_KEY, HEALTH_KEY, PROGRESS_KEY, ROUTINE_KEY, REMINDERS_KEY, ROUTINE_OUTBOX_KEY,
+    BUDGET_KEY, MEASUREMENTS_KEY]) {
     Storage.removeItemSync(key);
   }
   athleteMemo = undefined;
@@ -295,6 +305,8 @@ const PROGRESS_KEY = 'progress_report';
 const OWNER_KEY = 'local_owner';
 const ROUTINE_KEY = 'routine_day';
 const REMINDERS_KEY = 'routine_reminders';
+const ROUTINE_OUTBOX_KEY = 'routine_outbox';
+const BUDGET_KEY = 'time_budget';
 
 export type DeviceRole = 'hr' | 'bike';
 export type SavedDevices = Partial<Record<DeviceRole, { id: string; name: string }>>;
@@ -325,6 +337,50 @@ export function cachedRoutine(day: string): Routine | null {
 
 export function storeRoutine(r: Routine): void {
   Storage.setItemSync(ROUTINE_KEY, JSON.stringify(r));
+}
+
+/** A routine tick that has not reached the server yet. Ticks set state (water is a total), so the last one wins. */
+export interface PendingRoutineCheck {
+  day: string;
+  item: string;
+  body: RoutineCheck;
+}
+
+const sameCheck = (a: PendingRoutineCheck, b: { day: string; item: string }) => a.day === b.day && a.item === b.item;
+
+export function pendingRoutineChecks(day?: string): PendingRoutineCheck[] {
+  const raw = Storage.getItemSync(ROUTINE_OUTBOX_KEY);
+  const all = raw ? (JSON.parse(raw) as PendingRoutineCheck[]) : [];
+  return day ? all.filter((c) => c.day === day) : all;
+}
+
+export function queueRoutineCheck(check: PendingRoutineCheck): void {
+  const rest = pendingRoutineChecks().filter((c) => !sameCheck(c, check));
+  Storage.setItemSync(ROUTINE_OUTBOX_KEY, JSON.stringify([...rest, check]));
+}
+
+/** Drop a delivered tick, unless a newer one for the same item was queued while it was in flight. */
+export function removeRoutineCheck(check: PendingRoutineCheck): void {
+  const body = JSON.stringify(check.body);
+  const rest = pendingRoutineChecks().filter((c) => !(sameCheck(c, check) && JSON.stringify(c.body) === body));
+  Storage.setItemSync(ROUTINE_OUTBOX_KEY, JSON.stringify(rest));
+}
+
+/** A tick sent straight to the server supersedes any queued one for the same item. */
+export function dropRoutineCheck(day: string, item: string): void {
+  Storage.setItemSync(ROUTINE_OUTBOX_KEY, JSON.stringify(pendingRoutineChecks().filter((c) => !sameCheck(c, { day, item }))));
+}
+
+/** Minutes the athlete has for today's session ("Tenho só X minutos"); null = the full session. */
+export function timeBudget(day: string): number | null {
+  const raw = Storage.getItemSync(BUDGET_KEY);
+  const b = raw ? (JSON.parse(raw) as { day: string; minutes: number }) : null;
+  return b?.day === day ? b.minutes : null;
+}
+
+export function setTimeBudget(day: string, minutes: number | null): void {
+  if (minutes == null) Storage.removeItemSync(BUDGET_KEY);
+  else Storage.setItemSync(BUDGET_KEY, JSON.stringify({ day, minutes }));
 }
 
 export function routineRemindersEnabled(): boolean {

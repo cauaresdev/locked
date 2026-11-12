@@ -6,18 +6,18 @@ import { AccessibilityInfo, Alert, AppState, Pressable, ScrollView, StyleSheet, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../api/client';
-import type { Athlete, Implement, Sex, Tier } from '../../api/types';
+import type { Athlete, ExercisePreference, Implement, Sex, Tier } from '../../api/types';
 import { clearToken } from '../../auth';
 import { useDeviceControls, useDeviceScan, type FoundDevice } from '../../ble/devices';
 import { Icon } from '../../components/Icon';
 import { Badge, Button, Chip, Divider, Field, Panel, Row, ScreenHeader, T, TextLink } from '../../components/ui';
-import { isoDay } from '../../engine/format';
+import { isoDay, parseDecimal } from '../../engine/format';
 import { GLOSSARY, signalLabel } from '../../engine/glossary';
 import { ALL_EQUIPMENT, EQUIPMENT_GROUPS, GYM_PRESETS, PROGRAM_NAME, PROGRAMS } from '../../engine/programs';
 import { healthProvider, syncNight } from '../../health';
-import { cancelEarlyBird, exactAlarmsAllowed, openExactAlarmSettings } from '../../notifications';
+import { exactAlarmsAllowed, openExactAlarmSettings } from '../../notifications';
 import {
-  clearLocalData,
+  clearSessionCache,
   healthSyncEnabled,
   pendingTotal,
   rejectedCount,
@@ -26,8 +26,9 @@ import {
   storedAthlete,
 } from '../../storage/db';
 import type { DeviceRole } from '../../storage/db';
-import { flushAll } from '../../sync';
+import { flushAll, prefetchSchedule } from '../../sync';
 import { colors, radius, space } from '../../theme';
+import { wipeDevice } from '../../wipe';
 
 const ROLE_LABEL: Record<DeviceRole, string> = {
   hr: 'Cinta cardíaca',
@@ -36,7 +37,9 @@ const ROLE_LABEL: Record<DeviceRole, string> = {
 
 
 const str = (v: number | null | undefined) => (v == null ? '' : String(v));
-const num = (v: string) => (v.trim() ? Number(v.replace(',', '.')) : null);
+// Typed numbers the Brazilian way ("82,5"); a field that doesn't parse blocks the save instead of erasing data.
+const num = parseDecimal;
+const invalid = (v: string) => v.trim() !== '' && parseDecimal(v) == null;
 const formOf = (a: Athlete | null) => ({
   name: a?.name ?? '',
   weight: str(a?.bodyweight_kg),
@@ -66,7 +69,7 @@ export default function Settings() {
   const [form, setForm] = useState(() => formOf(athlete));
   const edited = useRef(false); // unsaved typing in the profile form
   const [msg, setMsgState] = useState<Msg | null>(null);
-  const [health, setHealth] = useState(healthSyncEnabled());
+  const [health, setHealth] = useState(healthSyncEnabled);
 
   const setMsg = useCallback((m: Msg) => {
     setMsgState(m);
@@ -102,6 +105,11 @@ export default function Settings() {
       const a = await api.updateAthlete(athlete.id, body);
       storeAthlete(a);
       setAthlete(a);
+      // A new program or equipment means different sessions: the cached ones (and Hoje's copy) are stale.
+      if (at === 'tier' || at === 'equipment') {
+        await clearSessionCache();
+        if (a) prefetchSchedule(a.id, isoDay(), a.cycle_start).catch(() => {});
+      }
       if (at === 'profile') edited.current = false;
       if (at === 'profile' || !edited.current) setForm(formOf(a));
       setMsg({ text: okText, tone: 'ok', at });
@@ -162,10 +170,9 @@ export default function Settings() {
 
   async function signOut() {
     await api.logout().catch(() => {});
-    await cancelEarlyBird();
     await devices.reset(); // a live strap would keep queueing HR into the next account
     await clearToken();
-    await clearLocalData();
+    await wipeDevice();
     router.replace('/login');
   }
 
@@ -219,10 +226,9 @@ export default function Settings() {
       setMsg({ text: e instanceof Error ? e.message : 'Falha ao excluir (requer conexão)', tone: 'err', at: 'account' });
       return;
     }
-    await cancelEarlyBird();
     await devices.reset();
     await clearToken();
-    await clearLocalData();
+    await wipeDevice();
     router.replace('/login');
   }
 
@@ -257,8 +263,13 @@ export default function Settings() {
           <Button
             tone="secondary"
             label="Salvar perfil"
-            onPress={() =>
-              save(
+            onPress={() => {
+              const bad = (['weight', 'bf', 'height', 'birth', 'hrmax'] as const).filter((k) => invalid(form[k]));
+              if (bad.length) {
+                setMsg({ text: 'Confira os números: use só algarismos e vírgula (ex.: 82,5).', tone: 'err', at: 'profile' });
+                return;
+              }
+              return save(
                 {
                   name: form.name.trim() || athlete.name,
                   // Only a typed change: resending the stored value would override the 7-day trend.
@@ -274,8 +285,8 @@ export default function Settings() {
                 },
                 'Perfil salvo.',
                 'profile',
-              )
-            }
+              );
+            }}
           />
           <Feedback msg={msg} at="profile" />
         </Panel>
@@ -347,7 +358,8 @@ export default function Settings() {
             </Row>
             <T variant="hint">
               VFC (variabilidade da frequência cardíaca), frequência cardíaca de repouso e sono da última noite
-              alimentam a prontidão; o peso de uma balança conectada entra na média de 7 dias. Garmin, Oura e Whoop
+              alimentam a prontidão; o peso de uma balança conectada entra na média de 7 dias; os passos do dia
+              marcam o item da rotina. Garmin, Oura e Whoop
               entram via sincronização do app do fabricante com o {provider.name}.
             </T>
             <Row>
@@ -360,6 +372,8 @@ export default function Settings() {
         )}
 
         <ExactAlarmPanel />
+
+        <SwapsPanel athleteId={athlete.id} />
 
         <EquipmentPanel athlete={athlete} onSave={(equipment) => save({ equipment }, 'Equipamentos salvos.', 'equipment')}
           feedback={<Feedback msg={msg} at="equipment" />} />
@@ -382,6 +396,50 @@ export default function Settings() {
         <Glossary />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/** Standing swaps made from a session ("Usar sempre esta troca"), with a way to undo each. */
+function SwapsPanel({ athleteId }: { athleteId: string }) {
+  const [prefs, setPrefs] = useState<ExercisePreference[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      api.exercisePreferences(athleteId).then((p) => {
+        setPrefs(p);
+        setError(null);
+      }).catch(() => setError('Sem conexão: as trocas fixas ficam no servidor.'));
+    }, [athleteId]),
+  );
+  async function remove(p: ExercisePreference) {
+    try {
+      await api.deleteExercisePreference(athleteId, p.exercise_id);
+      setPrefs((list) => list?.filter((x) => x.exercise_id !== p.exercise_id) ?? null);
+      const a = storedAthlete();
+      if (a) prefetchSchedule(athleteId, isoDay(), a.cycle_start).catch(() => {});
+    } catch {
+      setError('Não removeu: sem conexão.');
+    }
+  }
+  return (
+    <Panel style={styles.panel}>
+      <T variant="title">Trocas de exercício</T>
+      <T variant="hint">
+        Marque “Usar sempre esta troca” ao trocar um exercício no treino e ele passa a vir no lugar do original. A troca
+        só entra quando o substituto cabe naquela vaga.
+      </T>
+      {error && <T color={colors.warning}>{error}</T>}
+      {prefs?.length === 0 && <T variant="label">Nenhuma troca fixa.</T>}
+      {prefs?.map((p) => (
+        <Row key={p.exercise_id} style={{ justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <T>{p.replacement_name}</T>
+            <T variant="label">no lugar de {p.name}</T>
+          </View>
+          <TextLink label="Desfazer" accessibilityLabel={`Desfazer troca de ${p.name}`} onPress={() => remove(p)} />
+        </Row>
+      ))}
+    </Panel>
   );
 }
 

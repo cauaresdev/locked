@@ -1,3 +1,4 @@
+import { BarlowCondensed_700Bold } from '@expo-google-fonts/barlow-condensed';
 import { JetBrainsMono_400Regular, JetBrainsMono_700Bold, useFonts } from '@expo-google-fonts/jetbrains-mono';
 import { setAudioModeAsync } from 'expo-audio';
 import * as Notifications from 'expo-notifications';
@@ -8,6 +9,7 @@ import { useEffect } from 'react';
 
 import { clearToken, onUnauthorized } from '../auth';
 import { DevicesProvider } from '../ble/devices';
+import { ToastHost } from '../components/Toast';
 import { CuesProvider } from '../hooks/useCues';
 import { configureNotifications } from '../notifications';
 import { colors } from '../theme';
@@ -17,7 +19,7 @@ configureNotifications();
 
 export default function RootLayout() {
   const router = useRouter();
-  const [loaded, error] = useFonts({ JetBrainsMono_400Regular, JetBrainsMono_700Bold });
+  const [loaded, error] = useFonts({ JetBrainsMono_400Regular, JetBrainsMono_700Bold, BarlowCondensed_700Bold });
 
   useEffect(() => {
     // Cues and voice play over the user's own music instead of stopping it.
@@ -39,11 +41,13 @@ export default function RootLayout() {
     [router],
   );
 
-  // Tapping the wake alarm opens Early Bird; a routine reminder opens the routine.
+  // Tapping the wake alarm opens Early Bird; a routine reminder the routine; a training reminder Hoje.
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((r) => {
       const route = r.notification.request.content.data?.route;
-      if (route === '/early-bird' || route === '/routine') router.push(route);
+      if (route === '/early-bird' || route === '/routine' || route === '/today' || route === '/progress') {
+        router.push(route);
+      }
     });
     return () => sub.remove();
   }, [router]);
@@ -63,6 +67,7 @@ export default function RootLayout() {
         >
           <Stack.Screen name="scan" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         </Stack>
+        <ToastHost />
       </DevicesProvider>
     </CuesProvider>
   );

@@ -61,3 +61,13 @@ test('summary says how many are left', () => {
   const r = routine([item('a', { done: true }), item('b'), item('c'), item('d'), item('e')]);
   expect(routineSummary(r)).toEqual({ headline: 'Faltam 3 para cumprir o dia', remaining: 3 });
 });
+
+test('a step count ticks steps at the target and keeps a manual tick below it', () => {
+  const steps = item('steps', { kind: 'steps', target: 8000 });
+  const counted = withCheck(routine([steps]), 'steps', { value: 9100 });
+  expect(counted.items[0]).toMatchObject({ value: 9100, done: true, auto: true });
+  const manual = withCheck(routine([{ ...steps, done: true }]), 'steps', { value: 3000 });
+  expect(manual.items[0]).toMatchObject({ value: 3000, done: true, auto: false });
+  const recount = withCheck(counted, 'steps', { value: 7000 }); // a watch never counts down, but a manual fix might
+  expect(recount.items[0]).toMatchObject({ done: false, auto: false });
+});

@@ -9,10 +9,21 @@ equipment profile has; `fallbacks` only come in when none of the options is ther
 (a missing leg curl becomes a nordic curl or a stiff, never a hole in the day).
 
 Main lifts are fixed, so the load can progress week after week. Accessory slots
-marked `rotate` move to the next available option every cycle, starting at a
-different point on each day, so two days sharing a pool do not show the same
-exercise. Selection depends only on (day, slot, cycle, equipment): no seed, no
-chain to walk, and the server and an offline device always agree.
+marked `rotate` move to the next available option once per mesocycle (the
+cycles up to and including a deload), starting at a different point on each
+day, so two days sharing a pool do not show the same exercise. Within a
+mesocycle an accessory stays put, so it gets five exposures in a row to add
+load or reps. A main slot with `rotate` (the conjugate max-effort lift) still
+alternates every cycle. Selection depends only on (day, slot, cycle,
+equipment): no seed, no chain to walk, and the server and an offline device
+always agree.
+
+Effort ramps across the mesocycle: the loading cycles go from 1 point below
+each slot's target effort to 1 point above it (5 loading weeks: -1, -0.5, 0,
++0.5, +1; never above RPE 9.5), then the deload. The average stays on target,
+fatigue builds gradually and the load follows (it is prescribed from the
+target effort). Programs whose top sets are maximal every week (conjugate) opt
+out with `rpe_ramp=False`.
 
 Blocks: warm-up checklist (mandatory: light cardio + mobility), then power
 (jumps, throws, sprints) on the days that have it, main lifts, accessories and,
@@ -22,7 +33,7 @@ work, it gets 90-180 s between efforts, and no effort is prescribed (every rep
 is maximal; stop the set when the speed drops). Days with sprints or agility
 sit at least 48 h from heavy squats and deadlifts (a test checks every cycle).
 
-Readiness and deload:
+Readiness and deload (on top of the ramp):
 - amber: target effort -1;
 - red: strength sets x0.6 and effort -1, no finisher, a longer warm-up with one
   more mobility drill;
@@ -53,6 +64,7 @@ from .domain import (
     Tier,
     WarmupSet,
 )
+from .plateau import with_calibration_set
 from .progression import warmup_ramp
 from .records import SetRecord
 from .strength import e1rm_history
@@ -66,6 +78,8 @@ BACKOFF_RPE = 7.5
 BACKOFF_SHARE = 0.8
 ROLE_RPE = {"top": TOP_SET_RPE, "backoff": BACKOFF_RPE}
 RED_SET_MULTIPLIER = 0.6
+DEFAULT_MESO_LENGTH = 6  # cycles per mesocycle when none is given: TierConfig.deload_every_cycles' default
+RAMP_SPAN = 1.0  # effort points below / above target on the first / last loading cycle
 WARMUP_SETS_CUE = "antes: 2 séries de aproximação (~50% e ~75% da carga)"
 POWER_CUE = "esforço máximo em cada repetição; pare a série se a velocidade cair"
 # RIR (reps in reserve) as the app's effort scale: RPE = 10 - RIR.
@@ -83,6 +97,7 @@ class Slot:
     role: str | None = None  # "top" / "backoff": one exercise, two prescriptions
     rpe: float | None = None  # target effort; None: the modality's default (top / back-off have their own)
     exact: bool = False  # the slot's prescription even when the exercise's catalog entry is done another way
+    weekly: bool = False  # rotate every cycle instead of every mesocycle (conjugate max-effort lifts)
 
 
 @dataclass(frozen=True)
@@ -103,7 +118,7 @@ class SplitDay:
 def main(options: tuple[str, ...], rx: RxTemplate, rest: int = 150, role: str | None = None,
          fallbacks: tuple[str, ...] = (), rpe: float | None = None, exact: bool = False,
          rotate: bool = False, modality: Modality = S) -> Slot:
-    return Slot(options, rx, rest, modality, rotate, fallbacks, role, rpe, exact)
+    return Slot(options, rx, rest, modality, rotate, fallbacks, role, rpe, exact, weekly=rotate)
 
 
 def acc(options: tuple[str, ...], rx: RxTemplate, rest: int = 60, rotate: bool = True,
@@ -721,7 +736,8 @@ def _name(ex_id: str) -> str:
     return EXERCISES[ex_id].name
 
 
-def _choose(day: SplitDay, i: int, slot: Slot, cycle_index: int, equipment: Equipment, used: set[str]) -> str:
+def _choose(day: SplitDay, i: int, slot: Slot, cycle_index: int, equipment: Equipment, used: set[str],
+            meso_length: int) -> str:
     have = ([o for o in slot.options if available(o, equipment)]
             or [o for o in slot.fallbacks if available(o, equipment)])
     fresh = [o for o in have if _name(o) not in used]
@@ -737,8 +753,9 @@ def _choose(day: SplitDay, i: int, slot: Slot, cycle_index: int, equipment: Equi
         return fresh[0]
     # Each slot starts its rotation at its own point, so days sharing a pool differ within a cycle.
     start = zlib.crc32(f"{day.id}:{i}".encode()) % len(have)
+    turn = cycle_index if slot.weekly else cycle_index // meso_length
     for step in range(len(have)):
-        pick = have[(start + cycle_index + step) % len(have)]
+        pick = have[(start + turn + step) % len(have)]
         if pick in fresh:
             return pick
     return fresh[0]
@@ -748,8 +765,12 @@ def _warmup_cardio(equipment: Equipment) -> str:
     return next((c for c in WARMUP_CARDIO if available(c, equipment)), WARMUP_CARDIO[-1])
 
 
-def select(day_id: str, cycle_index: int, equipment: Equipment = None) -> tuple[str, ...]:
-    """Exercise id per slot (main, accessories, finisher in order) for one cycle."""
+def select(day_id: str, cycle_index: int, equipment: Equipment = None,
+           meso_length: int = DEFAULT_MESO_LENGTH) -> tuple[str, ...]:
+    """Exercise id per slot (main, accessories, finisher in order) for one cycle.
+
+    `meso_length` is the program's mesocycle in cycles (its deload interval): accessories rotate once per mesocycle.
+    """
     if cycle_index < 0:
         raise ValueError("cycle_index must be >= 0")
     day = DAYS[day_id]
@@ -761,7 +782,7 @@ def select(day_id: str, cycle_index: int, equipment: Equipment = None) -> tuple[
         if slot.role == "backoff" and chosen:
             ex = chosen[-1]
         else:
-            ex = _choose(day, i, slot, cycle_index, equipment, used)
+            ex = _choose(day, i, slot, cycle_index, equipment, used, meso_length)
         used.add(_name(ex))
         chosen.append(ex)
     return tuple(chosen)
@@ -777,6 +798,20 @@ class Params:
     rpe_delta: float
 
 
+def meso_week(cfg: TierConfig, cycle_index: int) -> int:
+    """1-based week of the mesocycle; the last one is the scheduled deload."""
+    return cycle_index % cfg.deload_every_cycles + 1
+
+
+def ramp_delta(cfg: TierConfig, cycle_index: int) -> float:
+    """Effort offset for this loading cycle: -1 on the first, +1 on the last before the deload, in 0.5 steps."""
+    loading = cfg.deload_every_cycles - 1
+    week = cycle_index % cfg.deload_every_cycles
+    if not cfg.rpe_ramp or loading < 2 or week >= loading:
+        return 0.0
+    return round((-RAMP_SPAN + 2 * RAMP_SPAN * week / (loading - 1)) * 2) / 2
+
+
 def params(cfg: TierConfig, cycle_index: int, readiness: ReadinessSummary | None,
            low_readiness_streak: bool) -> Params:
     from .generator import is_scheduled_deload
@@ -785,7 +820,10 @@ def params(cfg: TierConfig, cycle_index: int, readiness: ReadinessSummary | None
     deload = is_scheduled_deload(cfg, cycle_index) or low_readiness_streak
     red = level == "red"
     multiplier = DELOAD_SET_MULTIPLIER if deload else (RED_SET_MULTIPLIER if red else 1.0)
-    rpe_delta = DELOAD_RPE_DELTA if deload else (-1 if level in ("amber", "red") else 0)
+    if deload:
+        rpe_delta = DELOAD_RPE_DELTA
+    else:
+        rpe_delta = ramp_delta(cfg, cycle_index) + (-1 if level in ("amber", "red") else 0)
     return Params(deload, red, multiplier, rpe_delta)
 
 
@@ -928,8 +966,11 @@ def generate(
     if day_id == REST_DAY:
         return rest_day(cfg, cycle_index, cycle_day, readiness)
     day = DAYS[day_id]
-    ids = select(day_id, cycle_index, equipment)
+    ids = select(day_id, cycle_index, equipment, cfg.deload_every_cycles)
     p = params(cfg, cycle_index, readiness, low_readiness_streak)
+    week = meso_week(cfg, cycle_index)
+    # The last loading week of the mesocycle (effort already at its peak), on green or amber days.
+    calibrate = cfg.rpe_ramp and week == cfg.deload_every_cycles - 1 and not p.deload and not p.red
     kw = dict(p=p, history=history, bodyweight_kg=bodyweight_kg)
 
     blocks = [_warmup(cfg, day, equipment, p.red)]
@@ -940,6 +981,8 @@ def generate(
             continue
         rxs = _block_rxs(g.slots, g_ids, scaled=g.scaled, first_lift=g.slots is day.main, no_rpe=g.no_rpe,
                          **kw)
+        if g.slots is day.main and calibrate:
+            rxs = with_calibration_set(rxs)
         blocks.append(Block(order=order, kind=g.kind, name=g.name, duration_minutes=_block_minutes(rxs),
                             execution_style=ExecutionStyle.STRAIGHT_SETS,
                             rest_seconds=0 if g.kind == BlockKind.CONDITIONING else cfg.rest_seconds,
@@ -952,6 +995,9 @@ def generate(
         notices.append(f"Deload ({why}): menos séries, esforço alvo 2 pontos mais baixo e sem finalizador.")
     elif p.red:
         notices.append("Prontidão vermelha: aquecimento mais longo, menos séries e sem finalizador.")
+    if week == 1 and cycle_index > 0 and not p.deload:
+        notices.append("Mesociclo novo: os acessórios mudaram e ficam os mesmos até o próximo deload. "
+                       "O esforço começa mais leve e sobe a cada semana.")
     notices += prerequisite_notices(cfg, history, bodyweight_kg)
     notices += missing_equipment_notices(blocks, equipment)
 
@@ -968,6 +1014,8 @@ def generate(
         rest_cap_seconds=SPLIT_REST_CAP_SECONDS,
         readiness=readiness,
         deload=p.deload,
+        meso_week=week,
+        meso_length=cfg.deload_every_cycles,
         notices=notices,
         blocks=blocks,
     )

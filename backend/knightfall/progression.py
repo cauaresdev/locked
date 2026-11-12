@@ -45,12 +45,17 @@ INCREMENT_KG: dict[Implement, float] = {
 
 
 def last_top_set(records: Iterable[SetRecord], exercise_id: str) -> SetRecord | None:
-    """Heaviest set of the most recent day the exercise was logged with load."""
+    """Heaviest set of the most recent day the exercise was logged with load.
+
+    Among sets at that load, a rated one wins: the app asks for effort on the last set only, and the effort
+    is what moves the load.
+    """
     loaded = [r for r in records if r.exercise_id == exercise_id and r.load_kg is not None]
     if not loaded:
         return None
     last_day = max(r.performed_on for r in loaded)
-    return max((r for r in loaded if r.performed_on == last_day), key=lambda r: r.load_kg or 0)
+    return max((r for r in loaded if r.performed_on == last_day),
+               key=lambda r: (r.load_kg or 0, r.rpe is not None, r.rpe or 0))
 
 
 def suggest_load(ex: Exercise, last: SetRecord | None, target_rpe: float | None) -> float | None:

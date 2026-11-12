@@ -6,6 +6,11 @@ on the lumbar spine and shoulders is not part of the score: its evidence is
 weak, so a spike only caps a green day at amber. A red score expands Block 1
 (mobility) and trims Block 2 volume.
 
+Resting heart rate is compared with the athlete's own 30-day mean: a rise of
+a few beats (more than ~3 bpm, the night-to-night noise) is an early sign of
+accumulated fatigue, illness or a short night, and it counts down to zero at
++10 bpm. It needs a week of readings before it means anything.
+
 HRV follows the approach of Plews & Buchheit: a 7-day rolling mean of
 ln(HRV) compared with the athlete's 60-day baseline, flagged only when it
 falls below the smallest worthwhile change (0.5 SD). One bad night barely
@@ -24,7 +29,7 @@ from .catalog import EXERCISES
 from .domain import ReadinessSummary
 from .records import SetRecord
 
-WEIGHTS = {"hrv": 0.35, "sleep": 0.25, "soreness": 0.15}
+WEIGHTS = {"hrv": 0.35, "sleep": 0.25, "soreness": 0.15, "rhr": 0.15}
 ACWR_WARN = 1.3  # reason shown
 ACWR_DANGER = 1.5  # caps green at amber
 ACWR_CHRONIC_DAYS = 28
@@ -38,6 +43,12 @@ HRV_MIN_BASELINE = 14  # readings needed before the 60-day baseline is trusted
 HRV_SWC_SD = 0.5  # smallest worthwhile change, in baseline SDs
 HRV_FLOOR_SD = 2.0  # this far below baseline the HRV component is zero
 HRV_HISTORY_DAYS = HRV_BASELINE_DAYS + HRV_ACUTE_DAYS
+
+RHR_BASELINE_DAYS = 30
+RHR_MIN_BASELINE = 7  # readings before the mean is trusted
+RHR_SWC_BPM = 3.0  # up to this above the mean is noise: full marks
+RHR_FLOOR_BPM = 10.0  # this far above the mean the component is zero
+RHR_REASON_BPM = 5.0
 
 
 @dataclass(frozen=True)
@@ -80,8 +91,30 @@ def hrv_signal(series: Mapping[date, float], day: date) -> HrvSignal | None:
 
 
 @dataclass(frozen=True)
+class RhrSignal:
+    part: float  # 0 (well above baseline) .. 1 (at or below)
+    reason: str | None = None
+
+
+def rhr_signal(series: Mapping[date, float], day: date) -> RhrSignal | None:
+    """Today's resting HR against the mean of the previous RHR_BASELINE_DAYS days."""
+    if day not in series:
+        return None
+    base = [v for d, v in series.items() if day - timedelta(days=RHR_BASELINE_DAYS) <= d < day and v > 0]
+    if len(base) < RHR_MIN_BASELINE:
+        return None
+    delta = series[day] - mean(base)
+    part = 1.0 if delta <= RHR_SWC_BPM else 1 - _linear(delta, RHR_SWC_BPM, RHR_FLOOR_BPM)
+    reason = None
+    if delta >= RHR_REASON_BPM:
+        reason = f"FC de repouso {delta:.0f} bpm acima da sua média de {RHR_BASELINE_DAYS} dias"
+    return RhrSignal(part, reason)
+
+
+@dataclass(frozen=True)
 class ReadinessInputs:
     hrv: HrvSignal | None = None
+    rhr: RhrSignal | None = None
     sleep_hours: float | None = None
     soreness: int | None = None  # 1 (fresh) .. 5 (wrecked)
     lumbar_acwr: float | None = None
@@ -144,6 +177,11 @@ def score(inputs: ReadinessInputs) -> ReadinessSummary:
         parts["hrv"] = inputs.hrv.part
         if inputs.hrv.reason:
             reasons.append(inputs.hrv.reason)
+
+    if inputs.rhr is not None:
+        parts["rhr"] = inputs.rhr.part
+        if inputs.rhr.reason:
+            reasons.append(inputs.rhr.reason)
 
     if inputs.sleep_hours is not None:
         parts["sleep"] = _linear(inputs.sleep_hours, 4.0, 8.0)

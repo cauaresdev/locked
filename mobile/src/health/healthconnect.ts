@@ -1,6 +1,13 @@
-import { getSdkStatus, initialize, readRecords, requestPermission, SdkAvailabilityStatus } from 'react-native-health-connect';
+import {
+  aggregateRecord,
+  getSdkStatus,
+  initialize,
+  readRecords,
+  requestPermission,
+  SdkAvailabilityStatus,
+} from 'react-native-health-connect';
 
-import { mean, nightWindow, sleepHoursHealthConnect } from './aggregate';
+import { dayWindow, mean, nightWindow, sleepHoursHealthConnect } from './aggregate';
 import type { HealthProvider } from './types';
 
 const PERMISSIONS = [
@@ -8,6 +15,7 @@ const PERMISSIONS = [
   { accessType: 'read', recordType: 'RestingHeartRate' },
   { accessType: 'read', recordType: 'SleepSession' },
   { accessType: 'read', recordType: 'Weight' },
+  { accessType: 'read', recordType: 'Steps' },
 ] as const;
 
 let initialized = false;
@@ -47,6 +55,16 @@ const provider: HealthProvider = {
         stages: r.stages?.map((s) => ({ startTime: s.startTime, endTime: s.endTime, stage: s.stage })) }))),
       weight_kg: lastWeight ? Math.round(lastWeight.weight.inKilograms * 10) / 10 : null,
     };
+  },
+  async readSteps(day) {
+    if (!(await ready())) return null;
+    const { start, end } = dayWindow(day);
+    // The aggregate deduplicates phone + watch counting the same walk; summing raw records would not.
+    const r = await aggregateRecord({
+      recordType: 'Steps',
+      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
+    });
+    return r.COUNT_TOTAL > 0 ? Math.round(r.COUNT_TOTAL) : null;
   },
 };
 

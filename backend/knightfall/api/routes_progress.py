@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, select
 
 from .. import armor, volume
@@ -15,7 +15,7 @@ from ..domain import Tier
 from ..tiers import TIERS
 from .deps import AthleteDep, Db
 from .routes_nutrition import day_targets
-from .routes_training import get_strength
+from .routes_training import strength_out
 from .schemas import (
     MEASUREMENT_SITES,
     ArmorCycleOut,
@@ -31,7 +31,16 @@ from .schemas import (
     WeightOut,
     WeightPointOut,
 )
-from .services import day_sets, local_today, readiness_for, readiness_history, session_energy, session_for
+from .services import (
+    day_sets,
+    local_day_bounds,
+    local_today,
+    plan_shape,
+    readiness_for,
+    readiness_history,
+    samples_in_windows,
+    session_energy,
+)
 
 router = APIRouter(tags=["progress"])
 
@@ -56,11 +65,17 @@ def _weight_out(s: Db, a: Athlete, days: int) -> WeightOut:
 @router.put("/athletes/{athlete_id}/weight", response_model=WeightOut)
 def put_weight(body: WeighInIn, a: AthleteDep, s: Db) -> WeightOut:
     """Record a weigh-in. The 7-day trend becomes the body weight every target is computed from."""
+    today = local_today(a)
+    if body.day > today + timedelta(days=1):  # +1: a device a timezone ahead of the server's view
+        # A typo'd future date would become the "latest" weigh-in and pin the body weight for months.
+        raise HTTPException(422, "Data de pesagem no futuro.")
     row = s.get(WeighIn, (a.id, body.day)) or WeighIn(athlete_id=a.id, day=body.day)
     row.weight_kg, row.source = body.weight_kg, body.source
     s.add(row)
     s.flush()
-    latest = s.scalar(select(func.max(WeighIn.day)).where(WeighIn.athlete_id == a.id))
+    # Trend at the latest weigh-in up to today: a stray future row (from before this check) can't pin it.
+    latest = s.scalar(select(func.max(WeighIn.day)).where(WeighIn.athlete_id == a.id,
+                                                           WeighIn.day <= today + timedelta(days=1)))
     weights = _weights(s, a, latest - timedelta(days=wt.TREND_DAYS))  # only the trend window is needed
     if (t := wt.trend(weights, latest)) is not None:
         a.bodyweight_kg = t
@@ -108,8 +123,12 @@ def get_progress(a: AthleteDep, s: Db, days: Annotated[int, Query(ge=7, le=MAX_D
     for f in s.scalars(select(FoodEntry).where(FoodEntry.athlete_id == a.id, FoodEntry.day >= since,
                                                FoodEntry.day <= today)):
         food_days.setdefault(f.day, []).append(f)
-    for d, rows in sorted(food_days.items()):
-        target = day_targets(s, a, d, session_energy(s, a, d, sets_by_day.get(d, []))[0])[0].total
+    food_list = sorted(food_days.items())
+    # Heart rate of every food day in one query (end-exclusive like `samples`).
+    bounds = [local_day_bounds(a, d) for d, _ in food_list]
+    hr_by_day = samples_in_windows(s, a, "hr", [(lo, hi - timedelta(microseconds=1)) for lo, hi in bounds])
+    for (d, rows), hr in zip(food_list, hr_by_day):
+        target = day_targets(s, a, d, session_energy(s, a, d, sets_by_day.get(d, []), hr)[0])[0].total
         diet.append(DietDayOut(day=d, kcal=round(sum(r.kcal for r in rows)), kcal_target=target.kcal,
                                protein_g=round(sum(r.protein_g for r in rows)), protein_target_g=target.protein_g))
 
@@ -118,7 +137,7 @@ def get_progress(a: AthleteDep, s: Db, days: Annotated[int, Query(ge=7, le=MAX_D
     attendance = []
     d = max(since, a.cycle_start)
     while d <= today:
-        planned = session_for(s, a, d, with_readiness=False, records=[]).is_training_day
+        planned = plan_shape(s, a, d).is_training_day
         attendance.append(AttendanceDayOut(day=d, planned=planned, trained=d in trained))
         d += timedelta(days=1)
 
@@ -126,7 +145,7 @@ def get_progress(a: AthleteDep, s: Db, days: Annotated[int, Query(ge=7, le=MAX_D
     targets = TIERS[Tier(a.tier)].volume_targets  # the program's own bands; the rest use the default
     return ProgressOut(
         days=days,
-        strength=get_strength(a, s),
+        strength=strength_out(a, records),  # the history loaded above, not a second full load
         muscle_volume=[MuscleVolumeOut(muscle=m, label=volume.MUSCLE_LABEL[m], sets=this_week[m],
                                        previous_sets=last_week[m],
                                        target_min=targets.get(m, volume.TARGET_SETS)[0],

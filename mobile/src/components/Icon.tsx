@@ -48,6 +48,7 @@ const ICONS = {
   check: <Path d="m5 12 5 5L20 7" />,
   'chevron-right': <Path d="m9 6 6 6-6 6" />,
   'chevron-left': <Path d="m15 6-6 6 6 6" />,
+  'chevron-down': <Path d="m6 9 6 6 6-6" />,
   plus: <Path d="M12 5v14M5 12h14" />,
   close: <Path d="M6 6l12 12M18 6 6 18" />,
   play: <Path d="M7 4v16l13-8Z" />,
@@ -59,6 +60,7 @@ const ICONS = {
     </>
   ),
   swap: <Path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" />,
+  repeat: <Path d="M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3" />,
   bolt: <Path d="M13 2 4 14h7l-1 8 9-12h-7Z" />,
   droplet: <Path d="M12 2.7 6.3 9.3a7 7 0 1 0 11.4 0Z" />,
   bell: (

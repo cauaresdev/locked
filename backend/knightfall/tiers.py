@@ -42,6 +42,7 @@ class TierConfig:
     # Weekly hard sets per muscle the program aims at (volume.py); muscles left out use the default band.
     volume_targets: dict[str, tuple[int, int]] = field(default_factory=dict)
     weekly: bool = False  # day 1 is a Monday: the program starts on the next one
+    rpe_ramp: bool = True  # splits: target effort ramps across the mesocycle (splits.ramp_delta)
 
     def start_on(self, today: date) -> date:
         """First day of the program when it is picked today."""
@@ -201,6 +202,7 @@ TIERS: dict[Tier, TierConfig] = {
         description="Westside adaptado: esforço máximo e esforço dinâmico para superior e inferior. Para quem já "
                     "agacha 1,8× e levanta 2,2× o peso do corpo. Dia 1 = segunda.",
         protocol_id="knightfall_conjugate",
+        rpe_ramp=False,  # max-effort lifts are maximal every week
         cycle=("CJ1", "CJ2", REST_DAY, "CJ3", REST_DAY, "CJ4", REST_DAY),
         cycle_structure="4_of_7",
         prep_minutes=8,

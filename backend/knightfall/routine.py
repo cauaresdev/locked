@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta
 from typing import Literal
 
 Section = Literal["morning", "day", "night"]
-Kind = Literal["check", "water"]
+Kind = Literal["check", "water", "steps"]
 DayType = Literal["training", "recovery", "rest"]
 
 COMPLETE_SHARE = 0.8
@@ -27,6 +27,8 @@ WATER_ML_PER_KG = 35
 WATER_ML_PER_KG_ATHLETE = 45  # carb-cycling plan: heavy, explosive training; no extra on top
 WATER_TRAINING_EXTRA_ML = 500
 WATER_STEP_ML = 250
+WATER_MAX_ML = 15000
+DEFAULT_STEPS_TARGET = 8000
 WAKE_GRACE_MIN = 30  # a check-in up to this long after the alarm still counts as on time
 SLEEP_TOLERANCE_H = 0.25
 DEFAULT_SLEEP_TARGET_H = 8.0
@@ -53,7 +55,7 @@ ITEMS: tuple[ItemDef, ...] = (
     ItemDef("water", "day", kind="water", required=True),
     ItemDef("training", "day", required=True),
     ItemDef("supplements", "day"),
-    ItemDef("steps", "day"),
+    ItemDef("steps", "day", kind="steps"),
     ItemDef("mobility", "night"),
     ItemDef("wind_down", "night", default_on=False),
     ItemDef("screens_off", "night"),
@@ -162,6 +164,8 @@ class Settings:
     bodyweight_kg: float
     enabled: frozenset[str]
     goal: str = "cut"
+    steps_target: int = DEFAULT_STEPS_TARGET
+    training_time: str | None = None  # HH:MM
 
 
 def _fmt_h(h: float) -> str:
@@ -170,6 +174,10 @@ def _fmt_h(h: float) -> str:
     if minutes == 60:
         whole, minutes = whole + 1, 0
     return f"{whole} h" if minutes == 0 else f"{whole} h {minutes:02d}"
+
+
+def _count(n: float) -> str:
+    return f"{round(n):,}".replace(",", ".")
 
 
 def _litres(ml: float) -> str:
@@ -218,13 +226,20 @@ def items_for(cfg: Settings, data: DayData, checks: Mapping[str, Check]) -> list
                 if data.day_type == "rest":
                     continue
                 title = "Treino do dia" if data.day_type == "training" else "Recuperação ativa"
+                if cfg.training_time:
+                    title += f" · {cfg.training_time}"
                 add("training", title, "Marca sozinho quando você registra séries", data.trained)
             case "supplements":
                 total = data.supplements_total
                 add("supplements", "Suplementos", f"{data.supplements_taken} de {total} na aba Nutrição",
                     total > 0 and data.supplements_taken >= total)
             case "steps":
-                add("steps", "8.000 passos", "Confira no relógio ou no celular", False)
+                steps = checks.get("steps", Check()).value
+                target = cfg.steps_target
+                detail = (f"{_count(steps)} de {_count(target)} pelo relógio ou celular" if steps is not None
+                          else "Ative a saúde em Perfil para contar sozinho, ou marque à mão")
+                add("steps", f"{_count(target)} passos", detail, steps is not None and steps >= target,
+                    value=steps, target=float(target))
             case "mobility":
                 add("mobility", "Mobilidade noturna · 10 min", " · ".join(EVENING_MOBILITY), False)
             case "wind_down":
