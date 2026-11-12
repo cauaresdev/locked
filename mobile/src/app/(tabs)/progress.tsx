@@ -7,7 +7,7 @@ import { api } from '../../api/client';
 import type { Progress, ReadinessLevel } from '../../api/types';
 import { BarChart, ChartCard, LineChart, StatTile, type Bar } from '../../components/charts';
 import { MeasurementsCard } from '../../components/Measurements';
-import { Badge, Chip, Panel, Row, ScreenHeader, T } from '../../components/ui';
+import { Badge, Chip, FadeIn, Panel, Row, ScreenHeader, Skeleton, T } from '../../components/ui';
 import { shortDay } from '../../engine/chart';
 import { decimal, formatKgM, isoDay } from '../../engine/format';
 import { weeklyReview, type Goal } from '../../engine/review';
@@ -78,20 +78,33 @@ export default function ProgressScreen() {
         </Row>
 
         {!data ? (
-          <T color={colors.textMuted}>{loading ? 'Carregando…' : 'Sem dados ainda. Abra com conexão.'}</T>
+          loading ? (
+            <View style={{ gap: space.lg }} accessible accessibilityLabel="Carregando progresso">
+              <Skeleton height={120} />
+              <Skeleton height={90} />
+              <Skeleton height={200} />
+            </View>
+          ) : (
+            <T color={colors.textMuted}>Sem dados ainda. Abra com conexão.</T>
+          )
         ) : (
           <View style={{ gap: space.lg, opacity: loading ? 0.6 : 1 }}>
-            <ReviewCard data={data} />
-            <Summary data={data} />
-            <StrengthCard data={data} lift={lift} onLift={setLift} />
-            <MuscleVolumeCard data={data} />
-            <WeightCard data={data} />
-            <MeasurementsCard athleteId={athleteId} />
-            <ReadinessCard data={data} />
-            <SleepAndHrv data={data} />
-            <ArmorCard data={data} />
-            <DietCard data={data} />
-            <AttendanceCard data={data} />
+            {[
+              <ReviewCard key="review" data={data} />,
+              <Summary key="summary" data={data} />,
+              <StrengthCard key="strength" data={data} lift={lift} onLift={setLift} />,
+              <MuscleVolumeCard key="volume" data={data} />,
+              <WeightCard key="weight" data={data} />,
+              <MeasurementsCard key="measures" athleteId={athleteId} />,
+              <ReadinessCard key="readiness" data={data} />,
+              <SleepAndHrv key="sleep" data={data} />,
+              <ArmorCard key="armor" data={data} />,
+              <DietCard key="diet" data={data} />,
+              <AttendanceCard key="attendance" data={data} />,
+            ].map((card, i) => (
+              // Only the first screenful staggers; the rest is below the fold anyway.
+              <FadeIn key={card.key} delay={Math.min(i, 4) * 60}>{card}</FadeIn>
+            ))}
           </View>
         )}
       </ScrollView>

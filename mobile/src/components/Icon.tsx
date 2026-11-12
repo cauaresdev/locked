@@ -48,6 +48,7 @@ const ICONS = {
   check: <Path d="m5 12 5 5L20 7" />,
   'chevron-right': <Path d="m9 6 6 6-6 6" />,
   'chevron-left': <Path d="m15 6-6 6 6 6" />,
+  'chevron-down': <Path d="m6 9 6 6 6-6" />,
   plus: <Path d="M12 5v14M5 12h14" />,
   close: <Path d="M6 6l12 12M18 6 6 18" />,
   play: <Path d="M7 4v16l13-8Z" />,

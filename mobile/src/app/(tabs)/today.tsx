@@ -1,14 +1,31 @@
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
-import { useCallback, useRef, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../api/client';
 import type { ArmorLoad, Routine, Session, StrengthEntry, Weight } from '../../api/types';
 import { LiveHr } from '../../components/LiveHr';
-import { Badge, Button, Chip, Divider, Dots, Field, Panel, Row, ScreenHeader, Section, T, TextLink } from '../../components/ui';
-import { Icon } from '../../components/Icon';
+import {
+  Badge,
+  Button,
+  Chip,
+  CountUp,
+  Divider,
+  FadeIn,
+  Field,
+  Panel,
+  ProgressBar,
+  Row,
+  ScreenHeader,
+  Section,
+  T,
+  Tappable,
+  TextLink,
+} from '../../components/ui';
+import { Icon, type IconName } from '../../components/Icon';
+import { toast } from '../../components/Toast';
 import { routineSummary } from '../../engine/routine';
 import { BUDGET_OPTIONS, estimateMinutes, fitToBudget } from '../../engine/timeBudget';
 import { addDays, cycleStructureLabel, decimal, formatKgM, isoDay, parseDecimal as num, rxSummary } from '../../engine/format';
@@ -32,7 +49,7 @@ import {
   timeBudget,
 } from '../../storage/db';
 import { flushAll, loadSession, prefetchSchedule, refreshAthlete, withPendingChecks, type Source } from '../../sync';
-import { colors, levelColor, levelTextColor, space } from '../../theme';
+import { colors, fonts, levelColor, levelTextColor, space } from '../../theme';
 
 
 // Re-fetching on every tab switch made the app feel slow; within this window the screen
@@ -53,11 +70,14 @@ export default function Today() {
   const [missed, setMissed] = useState<string[]>([]);
   const [weight, setWeight] = useState<Weight | null>(null);
   const [routine, setRoutine] = useState<Routine | null>(() => cachedRoutine(today));
-  const [pending, setPending] = useState(0);
+  const [, setPending] = useState(0);
   const [rejected, setRejected] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(() => timeBudget(today));
+  const [showExercises, setShowExercises] = useState(false);
+  const [showBudget, setShowBudget] = useState(false);
+  const [readinessOpen, setReadinessOpen] = useState<boolean | null>(null); // null: follow the level
 
   const fetchedAt = useRef(0);
   const run = useRef(0); // only the latest network load may write state
@@ -159,7 +179,7 @@ export default function Today() {
       await load(true);
     } catch (e) {
       setMissed(missed);
-      Alert.alert('Não foi possível ajustar o ciclo', e instanceof Error ? e.message : String(e));
+      toast('Não foi possível ajustar o ciclo', e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -180,6 +200,12 @@ export default function Today() {
     setBudget(m);
   };
 
+  const canBudget = !!session?.is_training_day && budgets.length > 0;
+  const r = session?.readiness;
+  const hasScore = !!r && !r.reasons.includes('sem dados de prontidão');
+  // Amber / red explain themselves up front: they are why today's session is lighter.
+  const readinessShown = readinessOpen ?? (hasScore && r.level !== 'green');
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView
@@ -193,13 +219,11 @@ export default function Today() {
           overline={`${PROGRAM_NAME[athlete.tier]} · ${athlete.name}`}
           title="Hoje"
           right={
+            // Sync runs on its own; only what needs the athlete's attention shows up here.
             <View style={styles.status}>
               <LiveHr />
-              {pending > 0 && <Badge label={`${pending} na fila`} color={colors.warning} />}
               {rejected > 0 && <Badge label={`${rejected} recusados`} color={colors.danger} />}
-              {source !== 'live' && (
-                <Badge label={loading ? 'Atualizando…' : 'Sem conexão'} color={loading ? colors.textMuted : colors.warning} />
-              )}
+              {source !== 'live' && !loading && <Badge label="Offline" color={colors.warning} />}
             </View>
           }
         />
@@ -207,167 +231,255 @@ export default function Today() {
         {error && <Panel accent={colors.warning}><T color={colors.warning}>{error}</T></Panel>}
 
         {missed.length > 0 && (
-          <Panel accent={colors.warning} style={{ gap: space.md }}>
-            <T variant="title">Treino perdido</T>
-            <T>
-              {missed.length === 1
-                ? 'O treino de ontem ficou sem nenhuma série registrada.'
-                : `Os últimos ${missed.length} dias de treino ficaram sem nenhuma série registrada.`}
-            </T>
-            <T variant="hint">
-              Repor empurra o ciclo {missed.length} {missed.length === 1 ? 'dia' : 'dias'}: hoje você faz o treino
-              perdido e o resto da programação anda junto. O que já foi registrado não muda.
-            </T>
-            <Row>
-              <Button label="Repor hoje" onPress={makeUp} style={{ flex: 1 }} />
-              <Button tone="secondary" label="Seguir calendário" onPress={followCalendar} style={{ flex: 1 }} />
-            </Row>
-          </Panel>
+          <FadeIn>
+            <Panel accent={colors.warning} style={{ gap: space.md }}>
+              <Row style={{ gap: space.sm }}>
+                <Icon name="alert" size={18} color={colors.warning} />
+                <T variant="title">{missed.length === 1 ? 'Treino de ontem perdido' : `${missed.length} treinos perdidos`}</T>
+              </Row>
+              <T variant="hint">
+                Repor faz o treino perdido hoje e empurra o ciclo {missed.length} {missed.length === 1 ? 'dia' : 'dias'}.
+              </T>
+              <Row>
+                <Button label="Repor hoje" onPress={makeUp} style={{ flex: 1 }} />
+                <Button tone="secondary" label="Seguir calendário" onPress={followCalendar} style={{ flex: 1 }} />
+              </Row>
+            </Panel>
+          </FadeIn>
         )}
 
         {session && (
           <>
-            <Panel style={styles.hero}>
-              <Row style={{ justifyContent: 'space-between' }}>
-                <T variant="label">
-                  Dia {session.cycle_day} de {session.cycle_length} · ciclo {session.cycle_index + 1}
-                  {session.meso_week != null && session.meso_length != null
-                    ? ` · semana ${session.meso_week}/${session.meso_length} do mesociclo`
-                    : ''}
-                </T>
-                {session.deload && <Badge label="Deload" color={colors.warning} />}
-              </Row>
-              <T variant="display" style={{ fontSize: 26, lineHeight: 32 }}>{session.day_name}</T>
-              <T variant="label">
-                {session.blocks.length > 0
-                  ? `${plan?.target_duration_minutes ?? session.target_duration_minutes} min · ${exerciseCount} ${exerciseCount === 1 ? 'exercício' : 'exercícios'}`
-                  : 'Sem sessão hoje'}
-              </T>
-              {session.is_training_day && budgets.length > 0 && (
-                <View style={{ gap: space.xs }}>
-                  <T variant="label">Tempo disponível</T>
-                  <Row style={{ flexWrap: 'wrap' }}>
-                    <Chip label="Completo" selected={budget == null} onPress={() => pickBudget(null)} />
-                    {budgets.map((m) => (
-                      <Chip key={m} label={`${m} min`} selected={budget === m} onPress={() => pickBudget(m)}
-                        accessibilityLabel={`Tenho só ${m} minutos`} />
-                    ))}
+            <FadeIn>
+              <Panel style={styles.hero}>
+                <Row style={{ justifyContent: 'space-between' }}>
+                  <T variant="tag">
+                    Dia {session.cycle_day} de {session.cycle_length}
+                    {session.meso_week != null && session.meso_length != null
+                      ? ` · semana ${session.meso_week} de ${session.meso_length}`
+                      : ''}
+                  </T>
+                  {session.deload && <Badge label="Deload" color={colors.warning} />}
+                </Row>
+                <T variant="display" style={styles.dayName} numberOfLines={2}>{session.day_name}</T>
+                {session.blocks.length > 0 ? (
+                  <Row style={{ gap: space.lg }}>
+                    <Meta icon="timer" text={`${plan?.target_duration_minutes ?? session.target_duration_minutes} min`} />
+                    <Meta icon="dumbbell" text={`${exerciseCount} ${exerciseCount === 1 ? 'exercício' : 'exercícios'}`} />
+                    {budget != null && <Badge label="Ajustado" color={colors.accent} />}
                   </Row>
-                  {fitted && fitted.changes.length > 0 && (
-                    <T variant="hint" color={fitted.fits ? colors.textMuted : colors.warning}>
-                      {fitted.fits ? 'Ajustado: ' : `Mesmo ajustado, cerca de ${fitted.minutes} min: `}
-                      {fitted.changes.join(' · ')}.
-                    </T>
+                ) : (
+                  <T variant="label">Descanso completo hoje</T>
+                )}
+                <CycleStrip sessions={strip} current={session.cycle_day} structure={session.cycle_structure} />
+                {/* A full rest day has no session: nothing to list or start. */}
+                {session.blocks.length > 0 && (
+                  <>
+                    <Button
+                      icon="play"
+                      label={session.is_training_day ? 'Começar treino' : 'Começar recuperação'}
+                      onPress={() => router.push({ pathname: '/session/[day]', params: { day: today } })}
+                      style={{ marginTop: space.md }}
+                    />
+                    <SessionOutline session={plan ?? session} open={showExercises} />
+                    <Row style={{ gap: space.xl }}>
+                      <TextLink label={showExercises ? 'Ocultar exercícios' : 'Ver exercícios'}
+                        onPress={() => setShowExercises(!showExercises)} />
+                      {canBudget && (
+                        <TextLink
+                          label={budget != null ? `Tempo: ${budget} min` : 'Tenho menos tempo'}
+                          color={colors.textMuted}
+                          onPress={() => setShowBudget(!showBudget)}
+                        />
+                      )}
+                    </Row>
+                    {canBudget && showBudget && (
+                      <FadeIn style={{ gap: space.sm }}>
+                        <Row style={{ flexWrap: 'wrap' }}>
+                          <Chip label="Completo" selected={budget == null} onPress={() => pickBudget(null)} />
+                          {budgets.map((m) => (
+                            <Chip key={m} label={`${m} min`} selected={budget === m} onPress={() => pickBudget(m)}
+                              accessibilityLabel={`Tenho só ${m} minutos`} />
+                          ))}
+                        </Row>
+                        {fitted && fitted.changes.length > 0 && (
+                          <T variant="hint" color={fitted.fits ? colors.textMuted : colors.warning}>
+                            {fitted.fits ? 'Ajustado: ' : `Mesmo ajustado, cerca de ${fitted.minutes} min: `}
+                            {fitted.changes.join(' · ')}.
+                          </T>
+                        )}
+                      </FadeIn>
+                    )}
+                  </>
+                )}
+              </Panel>
+            </FadeIn>
+
+            <FadeIn delay={80}>
+              <Row style={{ alignItems: 'stretch', gap: space.md }}>
+                <Tile
+                  label="Prontidão"
+                  expanded={readinessShown}
+                  onPress={() => setReadinessOpen(!readinessShown)}
+                  accessibilityLabel={hasScore ? `Prontidão ${r.score}, ${LEVEL_LABEL[r.level]}` : 'Prontidão: sem dados hoje'}
+                >
+                  {hasScore ? (
+                    <CountUp value={r.score} color={levelTextColor[r.level]} />
+                  ) : (
+                    <T variant="metric" color={colors.textFaint}>—</T>
                   )}
-                </View>
-              )}
-              <CycleStrip sessions={strip} current={session.cycle_day} structure={session.cycle_structure} />
-              {/* A full rest day has no session: nothing to list or start. */}
-              {session.blocks.length > 0 && (
-                <>
-                  <Button
-                    icon="play"
-                    label={session.is_training_day ? 'Começar treino' : 'Começar recuperação'}
-                    onPress={() => router.push({ pathname: '/session/[day]', params: { day: today } })}
-                    style={{ marginTop: space.sm }}
-                  />
-                  <SessionOutline session={plan ?? session} />
-                </>
-              )}
-            </Panel>
+                  <T variant="label" numberOfLines={1}>{hasScore ? LEVEL_SHORT[r.level] : 'Registrar dados'}</T>
+                  <ProgressBar value={hasScore ? r.score / 100 : 0} color={hasScore ? levelColor[r.level] : colors.textFaint} />
+                </Tile>
+                {routine && <RoutineTile routine={routine} onPress={() => router.navigate('/routine')} />}
+              </Row>
+            </FadeIn>
 
-            {routine && <RoutineCard routine={routine} onPress={() => router.navigate('/routine')} />}
-
-            {/* Sunday and Monday: the week just closed is worth a look before the next one starts. */}
-            {[0, 1].includes(new Date().getDay()) && (
-              <Pressable onPress={() => router.navigate('/progress')} accessibilityRole="button"
-                accessibilityLabel="Abrir a revisão da semana">
-                <Panel style={{ gap: space.xs }}>
-                  <Row style={{ justifyContent: 'space-between' }}>
-                    <T variant="title">Revisão da semana</T>
-                    <Icon name="chevron-right" size={18} color={colors.textFaint} />
-                  </Row>
-                  <T variant="hint">Treinos, sono, força e peso dos últimos 7 dias, e o que ajustar.</T>
-                </Panel>
-              </Pressable>
+            {readinessShown && (
+              <FadeIn>
+                <ReadinessPanel session={session} athleteId={athlete.id} day={today} onUpdated={refresh}
+                  offline={source !== 'live'} />
+              </FadeIn>
             )}
 
             {session.notices.map((n) => (
               <Panel key={n} accent={colors.warning}><T color={colors.warning}>{n}</T></Panel>
             ))}
 
-            <ReadinessPanel session={session} athleteId={athlete.id} day={today} onUpdated={refresh} offline={source !== 'live'} />
+            {/* Sunday and Monday: the week just closed is worth a look before the next one starts. */}
+            {[0, 1].includes(new Date().getDay()) && (
+              <FadeIn delay={120}>
+                <Tappable onPress={() => router.navigate('/progress')} accessibilityLabel="Abrir a revisão da semana">
+                  <Panel style={{ gap: space.xs }}>
+                    <Row style={{ justifyContent: 'space-between' }}>
+                      <Row style={{ gap: space.sm }}>
+                        <Icon name="chart" size={18} color={colors.accent} />
+                        <T variant="title">Revisão da semana</T>
+                      </Row>
+                      <Icon name="chevron-right" size={18} color={colors.textFaint} />
+                    </Row>
+                    <T variant="hint">Treinos, sono, força e peso dos últimos 7 dias, e o que ajustar.</T>
+                  </Panel>
+                </Tappable>
+              </FadeIn>
+            )}
           </>
         )}
 
-        <WeightPanel athleteId={athlete.id} day={today} weight={weight} onSaved={setWeight} />
+        <FadeIn delay={160}>
+          <WeightPanel athleteId={athlete.id} day={today} weight={weight} onSaved={setWeight} />
+        </FadeIn>
 
         {(carried || strength.length > 0) && (
-          <Section title="Indicadores">
-            {strength.length > 0 && <StrengthPanel entries={strength} />}
-            {armor && carried && <ArmorPanel armor={armor} />}
-          </Section>
+          <FadeIn delay={200}>
+            <Section title="Indicadores">
+              {strength.length > 0 && <StrengthPanel entries={strength} />}
+              {armor && carried && <ArmorPanel armor={armor} />}
+            </Section>
+          </FadeIn>
         )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-/** The session's blocks, collapsed to one line each until opened. */
-function SessionOutline({ session }: { session: Session }) {
-  const [open, setOpen] = useState(false);
+/** A small icon + text pair for the hero's facts. */
+function Meta({ icon, text }: { icon: IconName; text: string }) {
   return (
-    <View style={{ gap: space.sm, marginTop: space.xs }}>
-      {session.blocks.map((b) => (
+    <Row style={{ gap: 6 }}>
+      <Icon name={icon} size={16} color={colors.textMuted} />
+      <T variant="label">{text}</T>
+    </Row>
+  );
+}
+
+/** Half-width summary card: caption and chevron on top, a big value, a line, a bar. */
+function Tile({
+  label,
+  children,
+  onPress,
+  expanded,
+  accessibilityLabel,
+}: {
+  label: string;
+  children: ReactNode;
+  onPress: () => void;
+  expanded?: boolean;
+  accessibilityLabel: string;
+}) {
+  return (
+    <Tappable onPress={onPress} style={{ flex: 1 }} accessibilityLabel={accessibilityLabel}
+      accessibilityState={expanded == null ? undefined : { expanded }}>
+      <Panel style={{ flex: 1, gap: space.xs }}>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <T variant="tag">{label}</T>
+          <Icon name={expanded == null ? 'chevron-right' : expanded ? 'chevron-down' : 'chevron-right'} size={16}
+            color={colors.textFaint} />
+        </Row>
+        {children}
+      </Panel>
+    </Tappable>
+  );
+}
+
+/** The session's blocks, one numbered line each; `open` lists their exercises too. */
+function SessionOutline({ session, open }: { session: Session; open: boolean }) {
+  return (
+    <View style={{ gap: space.sm, marginTop: space.sm }}>
+      {session.blocks.map((b, i) => (
         <View key={b.order} style={{ gap: 2 }}>
-          <Row style={{ justifyContent: 'space-between' }}>
+          <Row>
+            <T variant="label" color={colors.textFaint} style={styles.blockNo}>{String(i + 1).padStart(2, '0')}</T>
             <T style={{ flex: 1 }} numberOfLines={1}>{b.name}</T>
             <T variant="label">{b.duration_minutes} min</T>
           </Row>
-          {open && b.exercises.map((e, i) => (
-            <T key={i} variant="hint" numberOfLines={1}>{e.name} · {rxSummary(e)}</T>
-          ))}
+          {open && (
+            <FadeIn style={{ paddingLeft: 30, gap: 2 }}>
+              {b.exercises.map((e, j) => (
+                <T key={j} variant="hint" numberOfLines={1}>{e.name} · {rxSummary(e)}</T>
+              ))}
+            </FadeIn>
+          )}
         </View>
       ))}
-      <TextLink label={open ? 'Ocultar exercícios' : 'Ver exercícios'} onPress={() => setOpen(!open)} />
     </View>
   );
 }
 
+/**
+ * The cycle as a row of marks: filled for training, a ring for active recovery, a small dot for full
+ * rest. Past days fade; today is the accent.
+ */
 function CycleStrip({ sessions, current, structure }: { sessions: (Session | null)[]; current: number; structure: string }) {
-  // One summary for screen readers instead of a stop per dot.
-  const off = sessions.flatMap((s, i) => (s && !s.is_training_day ? [i + 1] : []));
+  // One summary for screen readers instead of a stop per mark.
+  const rest = sessions.flatMap((s, i) => (s && !s.is_training_day && s.blocks.length === 0 ? [i + 1] : []));
+  const recovery = sessions.flatMap((s, i) => (s && !s.is_training_day && s.blocks.length > 0 ? [i + 1] : []));
   const summary =
-    `Ciclo de ${sessions.length} dias, hoje é o dia ${current}.` +
-    (off.length ? ` Folga ${off.length === 1 ? 'no dia' : 'nos dias'} ${off.join(', ')}.` : '');
+    `${cycleStructureLabel(structure)}. Ciclo de ${sessions.length} dias, hoje é o dia ${current}.` +
+    (recovery.length ? ` Recuperação ativa ${recovery.length === 1 ? 'no dia' : 'nos dias'} ${recovery.join(', ')}.` : '') +
+    (rest.length ? ` Folga ${rest.length === 1 ? 'no dia' : 'nos dias'} ${rest.join(', ')}.` : '');
   return (
-    <View style={{ gap: space.xs, marginTop: space.sm }} accessible accessibilityLabel={summary}>
-      <View style={styles.strip}>
-        {sessions.map((s, i) => {
-          const day = i + 1;
-          const training = s?.is_training_day ?? true;
-          const isCurrent = day === current;
-          return (
-            <View key={i} style={styles.cell}>
+    <View style={styles.strip} accessible accessibilityLabel={summary}>
+      {sessions.map((s, i) => {
+        const day = i + 1;
+        const training = s?.is_training_day ?? true;
+        const recoveryDay = !training && !!s && s.blocks.length > 0;
+        const isCurrent = day === current;
+        const tone = isCurrent ? colors.accent : colors.textMuted;
+        return (
+          <View key={i} style={[styles.cell, day < current && { opacity: 0.35 }]}>
+            <View style={styles.markBox}>
               <View
                 style={[
-                  styles.dot,
-                  training ? styles.dotTraining : styles.dotOff,
-                  day < current && { opacity: 0.35 },
-                  isCurrent && styles.dotCurrent,
+                  training ? styles.markTraining : recoveryDay ? styles.markRecovery : styles.markRest,
+                  training || !recoveryDay ? { backgroundColor: tone } : { borderColor: tone },
                 ]}
               />
-              <T variant="label" style={{ fontSize: 11 }} color={isCurrent ? colors.text : colors.textFaint}>
-                {/* Off days: active recovery has a session to run, a full rest day has none. */}
-                {training ? day : s && s.blocks.length > 0 ? 'R' : '–'}
-              </T>
             </View>
-          );
-        })}
-      </View>
-      <T variant="label" style={{ fontSize: 12 }} color={colors.textFaint}>
-        {cycleStructureLabel(structure)} · R = recuperação ativa, – = folga
-      </T>
+            <T variant="label" style={{ fontSize: 11 }} color={isCurrent ? colors.text : colors.textFaint}>{day}</T>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -386,32 +498,33 @@ function ReadinessPanel({
   offline: boolean;
 }) {
   const r = session.readiness;
+  const hasScore = !!r && !r.reasons.includes('sem dados de prontidão');
   const [hrv, setHrv] = useState('');
   const [sleep, setSleep] = useState('');
-  const [soreness, setSoreness] = useState('');
+  const [soreness, setSoreness] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
+  // Nothing to explain without a score: go straight to the form.
+  const [editing, setEditing] = useState(!hasScore);
 
   async function submit() {
-    const [hrvMs, sleepH, sore] = [num(hrv), num(sleep), num(soreness)];
-    if (sore != null && (sore < 1 || sore > 5 || !Number.isInteger(sore))) return setErr('Dor: de 1 a 5.');
+    const [hrvMs, sleepH] = [num(hrv), num(sleep)];
     if (sleepH != null && (sleepH < 0 || sleepH > 24)) return setErr('Sono: de 0 a 24 h.');
     setBusy(true);
     setErr(null);
     try {
       await api.putReadiness(athleteId, {
         day,
-        // Only fields typed in: an empty field must not overwrite what Apple Health / Health
+        // Only fields filled in: an empty field must not overwrite what Apple Health / Health
         // Connect sent, and the method goes with a typed HRV only (manual apps report RMSSD).
         ...(hrvMs != null ? { hrv_ms: hrvMs, hrv_method: 'rmssd' as const } : {}),
         ...(sleepH != null ? { sleep_hours: sleepH } : {}),
-        ...(sore != null ? { soreness: sore } : {}),
+        ...(soreness != null ? { soreness } : {}),
         source: 'manual',
       });
       setHrv('');
       setSleep('');
-      setSoreness('');
+      setSoreness(null);
       setEditing(false);
       await onUpdated();
     } catch {
@@ -421,49 +534,52 @@ function ReadinessPanel({
     }
   }
 
-  const hasScore = r && !r.reasons.includes('sem dados de prontidão');
   return (
     <Panel style={{ gap: space.md }}>
-      <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <View style={{ flex: 1, gap: 2 }}>
-          <T variant="title">Prontidão</T>
-          <T variant="label">
-            {hasScore ? LEVEL_LABEL[r.level] : 'Sem dados hoje: registre VFC, sono ou dor'}
-          </T>
-        </View>
-        {hasScore && <T variant="metric" color={levelTextColor[r.level]}>{r.score}</T>}
-      </Row>
       {hasScore && (
-        <View style={styles.levelTrack}>
-          <View style={[styles.levelFill, { width: `${r.score}%`, backgroundColor: levelColor[r.level] }]} />
+        <View style={{ gap: space.xs }}>
+          <T variant="title">{LEVEL_LABEL[r.level]}</T>
+          {r.reasons.map((x) => (
+            <Row key={x} style={{ alignItems: 'flex-start' }}>
+              <View style={[styles.bullet, { backgroundColor: levelColor[r.level] }]} />
+              <T variant="hint" style={{ flex: 1 }}>{x}</T>
+            </Row>
+          ))}
+          {r.mobility_expanded && <T variant="hint" color={colors.warning}>Bloco 1 expandido para mobilidade.</T>}
         </View>
       )}
-      {hasScore && r.reasons.map((x) => <T key={x} variant="hint">· {x}</T>)}
-      {hasScore && r.mobility_expanded && <T color={colors.warning}>Bloco 1 expandido para mobilidade.</T>}
       {editing ? (
         <>
+          {!hasScore && <T variant="title">Como você acordou?</T>}
           <Row style={{ alignItems: 'flex-end' }}>
-            <Field label="VFC (ms)" value={hrv} onChangeText={setHrv} keyboardType="decimal-pad" />
-            <Field label="Sono (h)" value={sleep} onChangeText={setSleep} keyboardType="decimal-pad" />
-            <Field label="Dor 1–5" value={soreness} onChangeText={setSoreness} keyboardType="number-pad" />
+            <Field label="Sono (h)" value={sleep} onChangeText={setSleep} keyboardType="decimal-pad" placeholder="7,5" />
+            <Field label="VFC ao acordar (ms)" value={hrv} onChangeText={setHrv} keyboardType="decimal-pad" placeholder="—" />
           </Row>
-          <T variant="hint">
-            VFC: variabilidade da frequência cardíaca, medida ao acordar, em milissegundos. Dor muscular: 1 = nenhuma,
-            5 = muita.
-          </T>
+          <View style={{ gap: space.xs }}>
+            <Row style={{ justifyContent: 'space-between' }}>
+              <T variant="label">Dor muscular</T>
+              <T variant="label" color={colors.textFaint}>1 nenhuma · 5 muita</T>
+            </Row>
+            <Row style={{ gap: space.xs }}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <Chip key={n} label={String(n)} selected={soreness === n} style={{ flex: 1, paddingHorizontal: 0 }}
+                  accessibilityLabel={`Dor ${n} de 5`} onPress={() => setSoreness(soreness === n ? null : n)} />
+              ))}
+            </Row>
+          </View>
           <Row>
-            <Button tone="secondary" label="Cancelar" onPress={() => setEditing(false)} style={{ flex: 1 }} />
+            {hasScore && <Button tone="secondary" label="Cancelar" onPress={() => setEditing(false)} style={{ flex: 1 }} />}
             <Button
               tone="secondary"
-              label={offline ? 'Requer conexão' : busy ? 'Calculando…' : 'Atualizar'}
+              label={offline ? 'Requer conexão' : busy ? 'Calculando…' : 'Salvar'}
               onPress={submit}
-              disabled={offline || busy || !(hrv || sleep || soreness)}
+              disabled={offline || busy || !(hrv || sleep || soreness != null)}
               style={{ flex: 1 }}
             />
           </Row>
         </>
       ) : (
-        <TextLink label="Registrar VFC, sono e dor" onPress={() => setEditing(true)} />
+        <TextLink label="Registrar sono, VFC e dor" onPress={() => setEditing(true)} />
       )}
       {err && <T color={colors.warning}>{err}</T>}
     </Panel>
@@ -471,6 +587,7 @@ function ReadinessPanel({
 }
 
 const LEVEL_LABEL = { green: 'Verde: treino completo', amber: 'Amarelo: esforço reduzido', red: 'Vermelho: sessão aliviada' } as const;
+const LEVEL_SHORT = { green: 'Treino completo', amber: 'Esforço reduzido', red: 'Sessão aliviada' } as const;
 
 function WeightPanel({
   athleteId,
@@ -584,27 +701,23 @@ function StrengthPanel({ entries }: { entries: StrengthEntry[] }) {
   );
 }
 
-/** The day's routine at a glance; the whole card opens the Rotina tab. */
-function RoutineCard({ routine, onPress }: { routine: Routine; onPress: () => void }) {
+/** The day's routine at a glance; the tile opens the Rotina tab. */
+function RoutineTile({ routine, onPress }: { routine: Routine; onPress: () => void }) {
   const next = routine.items.find((i) => !i.done);
+  const color = routine.complete ? colors.success : colors.accent;
   return (
-    <Pressable onPress={onPress} accessibilityRole="button"
+    <Tile label="Rotina" onPress={onPress}
       accessibilityLabel={`Rotina: ${routine.done} de ${routine.total} hábitos. ${routineSummary(routine).headline}`}>
-      <Panel accent={routine.complete ? colors.success : undefined} style={{ gap: space.sm }}>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <T variant="title">Rotina</T>
-          <Row style={{ gap: space.sm }}>
-            {routine.streak > 0 && <Badge label={`${routine.streak} ${routine.streak === 1 ? 'dia' : 'dias'}`} color={colors.success} />}
-            <Icon name="chevron-right" size={18} color={colors.textMuted} />
-          </Row>
-        </Row>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <Dots done={routine.done} total={routine.total} color={routine.complete ? colors.success : colors.accent} />
-          <T variant="label">{routine.done}/{routine.total}</T>
-        </Row>
-        <T variant="label">{next ? `Próximo: ${next.title}` : routineSummary(routine).headline}</T>
-      </Panel>
-    </Pressable>
+      <Row style={{ alignItems: 'baseline', gap: 2 }}>
+        <CountUp value={routine.done} color={routine.complete ? colors.success : undefined} />
+        <T variant="label">/{routine.total}</T>
+        {routine.streak > 0 && (
+          <T variant="label" color={colors.success} style={{ marginLeft: 'auto' }}>{routine.streak}d seguidos</T>
+        )}
+      </Row>
+      <T variant="label" numberOfLines={1}>{routine.complete ? 'Rotina completa' : next ? next.title : routineSummary(routine).headline}</T>
+      <ProgressBar value={routine.total ? routine.done / routine.total : 0} color={color} />
+    </Tile>
   );
 }
 
@@ -613,12 +726,13 @@ const styles = StyleSheet.create({
   content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
   status: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: space.xs, maxWidth: '55%' },
   hero: { gap: space.sm, padding: space.xl },
-  strip: { flexDirection: 'row', justifyContent: 'space-between' },
+  dayName: { fontSize: 44, lineHeight: 46, marginTop: space.xs },
+  blockNo: { width: 22, fontFamily: fonts.mono, fontSize: 12 },
+  strip: { flexDirection: 'row', justifyContent: 'space-between', marginTop: space.md },
   cell: { alignItems: 'center', gap: 6, flex: 1 },
-  dot: { width: 12, height: 12, borderRadius: 6 },
-  dotTraining: { backgroundColor: colors.textMuted },
-  dotOff: { borderWidth: 1.5, borderColor: colors.textFaint },
-  dotCurrent: { backgroundColor: colors.accent, borderColor: colors.accent, transform: [{ scale: 1.35 }], opacity: 1 },
-  levelTrack: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceHigh, overflow: 'hidden' },
-  levelFill: { height: 6, borderRadius: 3 },
+  markBox: { height: 14, justifyContent: 'center', alignItems: 'center' },
+  markTraining: { width: 14, height: 14, borderRadius: 7 },
+  markRecovery: { width: 14, height: 14, borderRadius: 7, borderWidth: 2 },
+  markRest: { width: 6, height: 6, borderRadius: 3 },
+  bullet: { width: 6, height: 6, borderRadius: 3, marginTop: 7 },
 });

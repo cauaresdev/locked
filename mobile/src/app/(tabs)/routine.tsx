@@ -13,7 +13,9 @@ import {
   Button,
   Checkbox,
   Chip,
+  CountUp,
   Dots,
+  FadeIn,
   Field,
   ListRow,
   Panel,
@@ -21,6 +23,7 @@ import {
   Row,
   ScreenHeader,
   Section,
+  Skeleton,
   T,
   TextLink,
 } from '../../components/ui';
@@ -183,15 +186,21 @@ export default function RoutineScreen() {
         {error && <Panel accent={colors.warning}><T color={colors.warning}>{error}</T></Panel>}
 
         {!routine ? (
-          <T variant="label">Carregando…</T>
+          <View style={{ gap: space.lg }} accessible accessibilityLabel="Carregando rotina">
+            <Skeleton height={150} />
+            <Skeleton height={20} width="40%" />
+            <Skeleton height={180} />
+          </View>
         ) : (
           <>
+            <FadeIn>
             <Panel accent={routine.complete ? colors.success : undefined} style={{ gap: space.md }}>
               <Row style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
                 <View accessible accessibilityLabel={`${routine.done} de ${routine.total} hábitos feitos hoje`}>
-                  <T variant="hero" color={routine.complete ? colors.success : colors.text}>
-                    {routine.done}/{routine.total}
-                  </T>
+                  <Row style={{ alignItems: 'baseline', gap: 0 }}>
+                    <CountUp variant="hero" value={routine.done} color={routine.complete ? colors.success : colors.text} />
+                    <T variant="hero" color={colors.textFaint}>/{routine.total}</T>
+                  </Row>
                   <T variant="label">{summary?.headline}</T>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 2 }}>
@@ -221,13 +230,15 @@ export default function RoutineScreen() {
                 })}
               </Row>
             </Panel>
+            </FadeIn>
 
-            {SECTIONS.map((section) => {
+            {SECTIONS.map((section, si) => {
               const items = routine.items.filter((i) => i.section === section);
               if (!items.length) return null;
               const done = items.filter((i) => i.done).length;
               return (
-                <Section key={section} title={SECTION_TITLE[section]}
+                <FadeIn key={section} delay={(si + 1) * 60}>
+                <Section title={SECTION_TITLE[section]}
                   right={<View accessible accessibilityLabel={`${done} de ${items.length}`}><Dots done={done} total={items.length} color={colors.success} /></View>}>
                   <Panel style={{ gap: space.xs, paddingVertical: space.sm }}>
                     {items.map((item) => item.kind === 'water'
@@ -248,6 +259,7 @@ export default function RoutineScreen() {
                     />
                   )}
                 </Section>
+                </FadeIn>
               );
             })}
 

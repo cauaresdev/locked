@@ -4,7 +4,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -15,7 +15,23 @@ import { TimerButton } from '../../components/TimerButton';
 import { fresh, useLiveBike } from '../../ble/devices';
 import { ExerciseThumb, HowToLink } from '../../components/ExerciseDemo';
 import { Icon } from '../../components/Icon';
-import { Badge, Button, Checkbox, Dots, Panel, Row, Stat, T, TextLink } from '../../components/ui';
+import { toast } from '../../components/Toast';
+import {
+  Badge,
+  Button,
+  Checkbox,
+  CountUp,
+  Dots,
+  FadeIn,
+  Panel,
+  PopIn,
+  ProgressBar,
+  Row,
+  Skeleton,
+  T,
+  Tappable,
+  TextLink,
+} from '../../components/ui';
 import { isRecord, sessionSummary, setE1rm } from '../../engine/athlete';
 import { clock, repsToLog, rxSummary } from '../../engine/format';
 import {
@@ -93,13 +109,14 @@ export default function SessionScreen() {
     try {
       await fn();
     } catch {
-      Alert.alert('Não foi possível salvar', 'A série não foi registrada no aparelho. Tente de novo.');
+      toast('Não foi possível salvar', 'A série não foi registrada no aparelho. Tente de novo.');
     } finally {
       writing.current = false;
     }
   }, []);
 
   const [loadError, setLoadError] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     prepareRestAlerts()
@@ -155,7 +172,7 @@ export default function SessionScreen() {
       progressRef.current = next;
       setProgress(next);
       saveProgress(day, next).catch(() =>
-        Alert.alert('Não foi possível salvar', 'O progresso da sessão não foi gravado no aparelho.'),
+        toast('Não foi possível salvar', 'O progresso da sessão não foi gravado no aparelho.'),
       );
     },
     [session, comms, play, day, athleteId],
@@ -170,7 +187,15 @@ export default function SessionScreen() {
             <Button label="Voltar" onPress={() => router.back()} />
           </View>
         ) : (
-          <T variant="label" style={{ padding: space.lg }}>Carregando sessão…</T>
+          <View style={{ padding: space.lg, gap: space.lg }} accessible accessibilityLabel="Carregando sessão">
+            <Skeleton height={40} width="70%" />
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={{ gap: space.sm }}>
+                <Skeleton height={14} width="35%" />
+                <Skeleton height={72} />
+              </View>
+            ))}
+          </View>
         )}
       </SafeAreaView>
     );
@@ -178,6 +203,7 @@ export default function SessionScreen() {
 
   const view = applySwaps(session, progress);
   const done = sessionComplete(view, progress);
+  const share = sessionShare(view, progress);
 
   const logSet = (block: Block, index: number, rx: Prescription, r: SetResult) =>
     exclusive(async () => {
@@ -284,16 +310,24 @@ export default function SessionScreen() {
           </T>
         </Pressable>
       </View>
+      <View style={styles.progress} accessible accessibilityLabel={`Sessão ${Math.round(share * 100)}% concluída`}>
+        <ProgressBar value={share} color={done ? colors.success : colors.accent} />
+      </View>
 
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
       >
-        <T variant="display" style={{ fontSize: 26, lineHeight: 32 }}>{session.day_name}</T>
-        {done && <SessionSummary progress={progress} />}
+        <T variant="display" style={{ fontSize: 34, lineHeight: 38 }}>{session.day_name}</T>
+        {done && (
+          <SessionSummary progress={progress} onShown={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
+            onClose={() => router.back()} />
+        )}
         {recordFlash && !done && (
+          <PopIn>
           <Panel accent={colors.accent}>
             <Row style={{ gap: space.sm }}>
               <Icon name="bolt" size={20} color={colors.accent} />
@@ -302,6 +336,7 @@ export default function SessionScreen() {
             </Row>
             <T>{recordFlash}</T>
           </Panel>
+          </PopIn>
         )}
 
         {view.deload && (
@@ -322,7 +357,7 @@ export default function SessionScreen() {
                     Bloco {block.order} · {block.duration_minutes} min
                   </T>
                   {locked && <Badge label="Bloqueado" color={colors.warning} />}
-                  {complete && <Badge label="Concluído" color={colors.success} />}
+                  {complete && <PopIn><Badge label="Concluído" color={colors.success} /></PopIn>}
                 </Row>
                 <T variant="title" accessibilityRole="header">{block.name}</T>
               </View>
@@ -349,7 +384,7 @@ export default function SessionScreen() {
                           accessibilityRole="checkbox" accessibilityState={{ checked }}>
                           <Row style={{ gap: space.md }}>
                             <View style={[styles.check, checked && styles.checkOn]}>
-                              {checked && <Icon name="check" size={14} color={colors.bg} strokeWidth={3} />}
+                              {checked && <PopIn><Icon name="check" size={14} color={colors.bg} strokeWidth={3} /></PopIn>}
                             </View>
                             <View style={{ flex: 1 }}>
                               <T color={checked ? colors.textMuted : colors.text}
@@ -387,7 +422,7 @@ export default function SessionScreen() {
                               {rx.name}
                             </T>
                             {finished
-                              ? <Icon name="check" size={20} color={colors.success} strokeWidth={2.5} />
+                              ? <PopIn><Icon name="check" size={20} color={colors.success} strokeWidth={2.5} /></PopIn>
                               : <Dots done={doneSets} total={rx.sets} color={colors.success} />}
                           </Row>
                           <T variant="hint">{rxSummary(rx)}</T>
@@ -458,7 +493,7 @@ export default function SessionScreen() {
                 const a = storedAthlete();
                 if (a) prefetchSchedule(athleteId, day, a.cycle_start).catch(() => {});
               } catch {
-                Alert.alert('Troca só de hoje', 'Sem conexão: a troca fixa não foi salva. Ela vale para este treino.');
+                toast('Troca só de hoje', 'Sem conexão: a troca fixa não foi salva. Ela vale para este treino.', 'info');
               }
             }
             update((p) => ({ ...p, swaps: { ...p.swaps, [swapFor.key]: rx } }));
@@ -485,26 +520,73 @@ export default function SessionScreen() {
   );
 }
 
-/** Session clock, ticking on its own so the rest of the screen doesn't re-render every second. */
-function SessionSummary({ progress }: { progress: Progress }) {
+/** Share of the session done: sets for straight sets, items for checklists, whole AMRAP blocks. */
+function sessionShare(view: Session, progress: Progress): number {
+  let done = 0;
+  let total = 0;
+  for (const b of view.blocks) {
+    if (b.execution_style === 'straight_sets') {
+      b.exercises.forEach((rx, i) => {
+        total += rx.sets;
+        done += Math.min(rx.sets, progress.setsDone[itemKey(b.order, i)] ?? 0);
+      });
+    } else if (b.execution_style === 'checklist') {
+      b.exercises.forEach((_, i) => {
+        total += 1;
+        done += progress.checked[itemKey(b.order, i)] ? 1 : 0;
+      });
+    } else {
+      total += 1;
+      done += blockComplete(view, b.order, progress) ? 1 : 0;
+    }
+  }
+  return total ? done / total : 0;
+}
+
+/** The finish line: what the session added up to, then home. */
+function SessionSummary({ progress, onShown, onClose }: { progress: Progress; onShown: () => void; onClose: () => void }) {
   const sum = sessionSummary(loggedSets(progress));
-  const minutes = ((progress.finishedAt ?? 0) - (progress.startedAt ?? 0)) / 1000;
+  const seconds = ((progress.finishedAt ?? 0) - (progress.startedAt ?? 0)) / 1000;
+  const shown = useRef(onShown);
+  useEffect(() => {
+    shown.current();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  }, []);
   return (
-    <Panel accent={colors.success} style={{ gap: space.md }}>
-      <T variant="title" color={colors.success}>Sessão concluída</T>
-      <Row style={{ justifyContent: 'space-between' }}>
-        <Stat value={clock(minutes)} label="duração" />
-        <Stat value={String(sum.sets)} label="séries" />
-        <Stat value={sum.volumeKg.toLocaleString('pt-BR')} unit="kg" label="volume" />
-      </Row>
-      {sum.records.length > 0 && (
-        <T color={colors.accent}>Recorde: {sum.records.join(', ')}</T>
-      )}
-      <T variant="hint">Séries enviadas quando houver sinal. Agora: proteína, água e sono.</T>
-    </Panel>
+    <FadeIn>
+      <Panel style={styles.summary}>
+        <PopIn style={styles.summaryBadge}>
+          <Icon name="check" size={34} color={colors.bg} strokeWidth={3} />
+        </PopIn>
+        <T variant="display" style={{ textAlign: 'center' }}>SESSÃO CONCLUÍDA</T>
+        <Row style={{ alignSelf: 'stretch', justifyContent: 'space-around', marginTop: space.sm }}>
+          <View style={styles.summaryStat}>
+            <T variant="metric">{clock(seconds)}</T>
+            <T variant="label">duração</T>
+          </View>
+          <View style={styles.summaryStat}>
+            <CountUp value={sum.sets} />
+            <T variant="label">séries</T>
+          </View>
+          <View style={styles.summaryStat}>
+            <CountUp value={sum.volumeKg} format={(n) => Math.round(n).toLocaleString('pt-BR')} />
+            <T variant="label">kg de volume</T>
+          </View>
+        </Row>
+        {sum.records.length > 0 && (
+          <Row style={styles.summaryRecords}>
+            <Icon name="bolt" size={18} color={colors.accent} />
+            <T color={colors.accent} style={{ flex: 1 }}>Recorde: {sum.records.join(', ')}</T>
+          </Row>
+        )}
+        <T variant="hint" style={{ textAlign: 'center' }}>Agora: proteína, água e sono. As séries sobem quando houver sinal.</T>
+        <Button label="Voltar para Hoje" onPress={onClose} style={{ alignSelf: 'stretch' }} />
+      </Panel>
+    </FadeIn>
   );
 }
 
+/** Session clock, ticking on its own so the rest of the screen doesn't re-render every second. */
 function Elapsed({ startedAt, finishedAt }: { startedAt: number | null; finishedAt: number | null }) {
   const [now, setNow] = useState(() => Date.now());
   const ticking = startedAt != null && finishedAt == null;
@@ -678,7 +760,7 @@ function SwapSheet({
       <SafeAreaView style={styles.root}>
         <ScrollView contentContainerStyle={styles.content}>
           <Row style={{ justifyContent: 'space-between' }}>
-            <T variant="display" style={{ fontSize: 24, lineHeight: 30 }}>Trocar exercício</T>
+            <T variant="display" style={{ fontSize: 30, lineHeight: 34 }}>Trocar exercício</T>
             <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Fechar" hitSlop={8}
               style={styles.iconBtn}>
               <Icon name="close" size={20} color={colors.text} />
@@ -693,10 +775,10 @@ function SwapSheet({
             </View>
           </Checkbox>
           {error && <T color={colors.warning}>{error}</T>}
-          {!options && !error && <ActivityIndicator color={colors.textMuted} />}
+          {!options && !error && [0, 1, 2].map((i) => <Skeleton key={i} height={72} />)}
           {options?.length === 0 && <T color={colors.textMuted}>Nenhuma alternativa com o seu equipamento.</T>}
           {options?.map((rx) => (
-            <Pressable key={rx.exercise_id} onPress={() => onPick(rx, always)} accessibilityRole="button">
+            <Tappable key={rx.exercise_id} onPress={() => onPick(rx, always)} accessibilityLabel={`Trocar por ${rx.name}`}>
               <Panel>
                 <Row>
                   <ExerciseThumb exerciseId={rx.exercise_id} size={48} />
@@ -707,7 +789,7 @@ function SwapSheet({
                   <Icon name="chevron-right" size={18} color={colors.textFaint} />
                 </Row>
               </Panel>
-            </Pressable>
+            </Tappable>
           ))}
         </ScrollView>
       </SafeAreaView>
@@ -790,6 +872,7 @@ function Rest({
   }
 
   return (
+    <FadeIn style={StyleSheet.absoluteFill}>
     <View style={[styles.restFull, { paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.lg }]}
       accessibilityViewIsModal>
       <Row style={{ justifyContent: 'space-between', alignSelf: 'stretch' }}>
@@ -820,6 +903,7 @@ function Rest({
       )}
       <Button label="Pular descanso" onPress={onSkip} style={{ alignSelf: 'stretch' }} />
     </View>
+    </FadeIn>
   );
 }
 
@@ -871,6 +955,14 @@ const styles = StyleSheet.create({
   },
   checkOn: { backgroundColor: colors.success, borderColor: colors.success },
   content: { padding: space.lg, gap: space.xl, paddingBottom: 160 },
+  progress: { paddingHorizontal: space.lg, paddingBottom: space.sm },
+  summary: { alignItems: 'center', gap: space.md, padding: space.xl, backgroundColor: colors.surface },
+  summaryBadge: {
+    width: 64, height: 64, borderRadius: 32, backgroundColor: colors.success,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  summaryStat: { alignItems: 'center', gap: 2 },
+  summaryRecords: { alignSelf: 'stretch', backgroundColor: colors.surfaceHigh, borderRadius: radius.md, padding: space.md },
   target: { flex: 1, minHeight: 44, justifyContent: 'center' },
   setHeader: { minHeight: 44, justifyContent: 'center', gap: space.sm },
   roundRest: { backgroundColor: colors.warningFill, borderRadius: radius.md, padding: space.md },
