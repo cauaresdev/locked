@@ -128,6 +128,13 @@ export function fitToBudget(session: Session, budgetMinutes: number | null): Bud
       changes.push(`circuito de ${each} min`);
     }
   }
+  // Blocks of sets carry the server's estimate: re-estimate the ones the cuts changed, so the outline adds up.
+  s = {
+    ...s,
+    blocks: s.blocks.map((b) => b.execution_style === 'straight_sets' && b.exercises.length
+      ? { ...b, duration_minutes: Math.max(1, Math.ceil(blockSeconds(b, s.rest_cap_seconds) / 60)) }
+      : b),
+  };
   const minutes = estimateMinutes(s);
   return { session: { ...s, target_duration_minutes: minutes }, minutes, changes, fits: minutes <= budgetMinutes };
 }

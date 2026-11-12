@@ -5170,7 +5170,7 @@
             "name": "block",
             "required": true,
             "schema": {
-              "maximum": 3,
+              "maximum": 10,
               "minimum": 1,
               "title": "Block",
               "type": "integer"

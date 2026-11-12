@@ -67,24 +67,35 @@ function write<T>(fn: () => Promise<T>): Promise<T> {
 const txn = (fn: () => Promise<void>) => write(() => db.withTransactionAsync(fn));
 const marks = (n: number) => Array.from({ length: n }, () => '?').join(',');
 
+// One statement per day, so a schedule prefetch racing a live fetch can never clobber the
+// live (readiness-adjusted) session for the same day.
+const UPSERT_SESSION = `INSERT INTO sessions (day, json, live, fetched_at) VALUES (?, ?, ?, ?)
+  ON CONFLICT(day) DO UPDATE SET json = excluded.json, live = excluded.live, fetched_at = excluded.fetched_at
+  WHERE excluded.live = 1 OR sessions.live = 0`;
+
 export async function cacheSession(day: string, session: Session, live: boolean): Promise<void> {
-  // One statement, so a schedule prefetch racing a live fetch can never clobber the
-  // live (readiness-adjusted) session for the same day.
+  await write(() => db.runAsync(UPSERT_SESSION, day, JSON.stringify(session), live ? 1 : 0, Date.now()));
+}
+
+/** A prefetched schedule in one write: one transaction instead of a queued write per day. */
+export async function cacheSchedule(days: { day: string; session: Session }[]): Promise<void> {
+  if (!days.length) return;
+  const now = Date.now();
   await write(() =>
-    db.runAsync(
-      `INSERT INTO sessions (day, json, live, fetched_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(day) DO UPDATE SET json = excluded.json, live = excluded.live, fetched_at = excluded.fetched_at
-       WHERE excluded.live = 1 OR sessions.live = 0`,
-      day,
-      JSON.stringify(session),
-      live ? 1 : 0,
-      Date.now(),
-    ),
+    db.withTransactionAsync(async () => {
+      for (const { day, session } of days) await db.runAsync(UPSERT_SESSION, day, JSON.stringify(session), 0, now);
+    }),
   );
 }
 
+// Bumped whenever the cached sessions are thrown away (program, equipment or cycle changed): screens that
+// keep a session in memory compare it to know their copy is stale.
+let sessionEpoch = 0;
+export const sessionCacheEpoch = () => sessionEpoch;
+
 /** Drop cached sessions (e.g. after the cycle was shifted), keeping in-session progress. */
 export async function clearSessionCache(): Promise<void> {
+  sessionEpoch++;
   await write(() => db.runAsync('DELETE FROM sessions'));
 }
 
@@ -150,12 +161,6 @@ export async function pendingLogDeletes(): Promise<string[]> {
 
 export async function removeLogDelete(id: string): Promise<void> {
   await write(() => db.runAsync('DELETE FROM log_deletes WHERE id = ?', id));
-}
-
-export async function pendingCount(): Promise<number> {
-  await migrate();
-  const row = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM outbox');
-  return row?.n ?? 0;
 }
 
 /** Everything still waiting to upload: set logs, food entries, deletes, telemetry batches and routine ticks. */
@@ -273,6 +278,9 @@ export async function rejectedCount(): Promise<number> {
 }
 
 /** Wipes everything tied to the signed-in user (the owner marker stays, see localOwner). */
+/** Body measurements cached by the Progresso card (Measurements.tsx). */
+export const MEASUREMENTS_KEY = 'measurements';
+
 export async function clearLocalData(): Promise<void> {
   await write(() =>
     db.withTransactionAsync(() =>
@@ -283,7 +291,7 @@ export async function clearLocalData(): Promise<void> {
     ),
   );
   for (const key of [ATHLETE_KEY, DEVICES_KEY, HEALTH_KEY, PROGRESS_KEY, ROUTINE_KEY, REMINDERS_KEY, ROUTINE_OUTBOX_KEY,
-    BUDGET_KEY]) {
+    BUDGET_KEY, MEASUREMENTS_KEY]) {
     Storage.removeItemSync(key);
   }
   athleteMemo = undefined;

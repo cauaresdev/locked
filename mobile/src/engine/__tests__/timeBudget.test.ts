@@ -51,6 +51,12 @@ test('cuts in order: finisher, supersets, accessory sets, then main rest and bac
     ['fly', 3, 0], ['lateral', 3, 60], ['curl', 2, 0], ['pressdown', 2, 60]]);
   expect(acc.exercises[0].cues[0]).toBe(SUPERSET_CUE);
   expect(tight.session.target_duration_minutes).toBe(tight.minutes);
+  // Each block's minutes follow the cuts, so Hoje's outline adds up to the new total.
+  const blockSum = tight.session.blocks.reduce((n, b) => n + b.duration_minutes, 0);
+  expect(blockSum).toBeGreaterThanOrEqual(tight.minutes);
+  expect(blockSum).toBeLessThanOrEqual(tight.minutes + tight.session.blocks.length);
+  // Shorter than the same block before the cuts (both on the device's estimate, not the fixture's 8 min).
+  expect(acc.duration_minutes).toBeLessThan(estimateMinutes({ ...session, blocks: [session.blocks[2]] }));
   expect(tight.minutes).toBeLessThan(full);
   // Same exercises at the same positions: logged sets and swaps keep their keys.
   expect(tight.session.blocks[0]).toEqual(session.blocks[0]); // the warm-up is never touched

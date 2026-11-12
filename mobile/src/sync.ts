@@ -4,6 +4,7 @@ import { deliver, isRejection } from './engine/deliver';
 import { addDays } from './engine/format';
 import { withCheck } from './engine/routine';
 import {
+  cacheSchedule,
   cacheSession,
   cachedSession,
   pendingFood,
@@ -45,7 +46,7 @@ export async function prefetchSchedule(athleteId: string, today: string, cycleSt
   const first = cycleStart > today ? cycleStart : today;
   try {
     const sessions = await api.schedule(athleteId, first, PREFETCH_DAYS);
-    await Promise.all(sessions.map((s, i) => cacheSession(addDays(first, i), s, false)));
+    await cacheSchedule(sessions.map((session, i) => ({ day: addDays(first, i), session })));
     return true;
   } catch {
     return false;

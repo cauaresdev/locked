@@ -7,7 +7,8 @@ import { api } from '../api/client';
 import { setToken } from '../auth';
 import { disconnectAllDevices } from '../ble/devices';
 import { Button, Field, T } from '../components/ui';
-import { clearLocalData, localOwner, storeAthlete } from '../storage/db';
+import { localOwner, storeAthlete } from '../storage/db';
+import { wipeDevice } from '../wipe';
 import { colors, space } from '../theme';
 
 export default function Login() {
@@ -34,7 +35,7 @@ export default function Login() {
       const owner = localOwner();
       if (!owner || owner !== auth.athlete_id) {
         await disconnectAllDevices();
-        await clearLocalData();
+        await wipeDevice(); // data and the reminders scheduled from it
       }
       setToken(auth.token);
       if (athlete) {

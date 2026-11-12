@@ -1,12 +1,13 @@
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../api/client';
 import type { ArmorLoad, Routine, Session, StrengthEntry, Weight } from '../../api/types';
 import { LiveHr } from '../../components/LiveHr';
+import { useToday } from '../../hooks/useToday';
 import {
   Badge,
   Button,
@@ -28,7 +29,7 @@ import { Icon, type IconName } from '../../components/Icon';
 import { toast } from '../../components/Toast';
 import { routineSummary } from '../../engine/routine';
 import { BUDGET_OPTIONS, estimateMinutes, fitToBudget } from '../../engine/timeBudget';
-import { addDays, cycleStructureLabel, decimal, formatKgM, isoDay, parseDecimal as num, rxSummary } from '../../engine/format';
+import { addDays, cycleStructureLabel, decimal, formatKgM, parseDecimal as num, rxSummary } from '../../engine/format';
 import { PROGRAM_NAME } from '../../engine/programs';
 import { syncNight, syncSteps } from '../../health';
 import { refreshTrainingReminders } from '../../reminders';
@@ -39,9 +40,9 @@ import {
   clearSessionCache,
   healthSyncEnabled,
   loadProgress,
-  pendingCount,
   pendingTotal,
   rejectedCount,
+  sessionCacheEpoch,
   setTimeBudget,
   storeAthlete,
   storedAthlete,
@@ -55,13 +56,14 @@ import { colors, fonts, levelColor, levelTextColor, space } from '../../theme';
 // Re-fetching on every tab switch made the app feel slow; within this window the screen
 // only refreshes local state (queue counts). Pull-to-refresh always goes to the server.
 const STALE_MS = 60_000;
+let remindersPlanned: string | null = null; // day + program the training reminders were last planned for
 const DISMISSED_KEY = 'knightfall_missed_dismissed'; // day the athlete chose to follow the calendar
 
 export default function Today() {
   const router = useRouter();
   const athlete = storedAthlete();
   const athleteId = athlete?.id;
-  const today = isoDay();
+  const today = useToday();
   const [session, setSession] = useState<Session | null>(null);
   const [source, setSource] = useState<Source>('cache');
   const [strip, setStrip] = useState<(Session | null)[]>([]);
@@ -70,7 +72,6 @@ export default function Today() {
   const [missed, setMissed] = useState<string[]>([]);
   const [weight, setWeight] = useState<Weight | null>(null);
   const [routine, setRoutine] = useState<Routine | null>(() => cachedRoutine(today));
-  const [, setPending] = useState(0);
   const [rejected, setRejected] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +83,7 @@ export default function Today() {
   const fetchedAt = useRef(0);
   const run = useRef(0); // only the latest network load may write state
   const shown = useRef(false);
+  const epoch = useRef(sessionCacheEpoch());
 
   const showSession = useCallback(async (s: Session, src: Source) => {
     shown.current = true;
@@ -94,13 +96,33 @@ export default function Today() {
   }, [today]);
 
   const refreshCounts = useCallback(async () => {
-    const [p, r] = await Promise.all([pendingCount(), rejectedCount()]);
-    setPending(p);
-    setRejected(r);
+    setRejected(await rejectedCount());
   }, []);
+
+  // A new day (morning after, app left open on Hoje): start over from that day's cache and fetch it now.
+  // The refs reset in an effect declared before the focus effect, so the new day's load sees them cleared.
+  useEffect(() => {
+    shown.current = false;
+    fetchedAt.current = 0;
+  }, [today]);
+  const [shownDay, setShownDay] = useState(today);
+  if (shownDay !== today) {
+    setShownDay(today);
+    setSession(null);
+    setStrip([]);
+    setRoutine(cachedRoutine(today));
+    setBudget(timeBudget(today));
+    setShowBudget(false);
+  }
 
   const load = useCallback(async (force = false) => {
     if (!athleteId) return;
+    // Program, equipment or cycle changed elsewhere: the session in memory and in the cache is stale.
+    if (epoch.current !== sessionCacheEpoch()) {
+      epoch.current = sessionCacheEpoch();
+      shown.current = false;
+      force = true;
+    }
     // Instant: what the device already has. The screen never waits on the network to appear.
     const [cached] = await Promise.all([cachedSession(today), refreshCounts()]);
     if (cached && !shown.current) await showSession(cached, 'cache');
@@ -116,7 +138,13 @@ export default function Today() {
       const others = Promise.all([
         prefetchSchedule(athleteId, today, storedAthlete()?.cycle_start ?? today).then((ok) => {
           const a = storedAthlete();
-          if (a) refreshTrainingReminders(a, today).catch(() => {}); // re-planned from the fresh schedule
+          // Re-planned from the fresh schedule once per day and program change, not on every visit:
+          // it cancels and re-creates up to 14 OS notifications.
+          const plan = `${today}:${sessionCacheEpoch()}:${a?.tier}:${a?.training_time}`;
+          if (a && ok && plan !== remindersPlanned) {
+            remindersPlanned = plan;
+            refreshTrainingReminders(a, today).catch(() => (remindersPlanned = null));
+          }
           return ok;
         }),
         api.armorLoad(athleteId, today).catch(() => null),

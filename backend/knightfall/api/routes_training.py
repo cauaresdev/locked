@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
@@ -13,6 +14,7 @@ from ..catalog import EXERCISES
 from ..db import Athlete, ExercisePreference, ReadinessEntry, SetLog, athlete_records, insert_new
 from ..domain import Prescription, ReadinessSummary, Session, Tier
 from ..generator import alternatives
+from ..records import SetRecord
 from ..strength import current_e1rm, e1rm_history, system_extra
 from ..tiers import TIERS
 from .deps import AthleteDep, CurrentUser, Db
@@ -35,9 +37,11 @@ from .schemas import (
 )
 from .services import (
     athlete_out,
+    forget_replacements,
     local_today,
     normalize_equipment,
     plan_context,
+    plan_shape,
     position,
     readiness_for,
     reject_foreign_ids,
@@ -140,7 +144,7 @@ def get_session(day: Day, a: AthleteDep, s: Db) -> Session:
 @router.get("/athletes/{athlete_id}/sessions/{day}/alternatives", response_model=list[Prescription])
 def get_alternatives(
     day: Day, a: AthleteDep, s: Db,
-    block: Annotated[int, Query(ge=1, le=3)], index: Annotated[int, Query(ge=0, le=20)],
+    block: Annotated[int, Query(ge=1, le=10)], index: Annotated[int, Query(ge=0, le=20)],
 ) -> list[Prescription]:
     """Other exercises for the same slot (same movement pattern, available equipment)."""
     try:
@@ -178,13 +182,27 @@ def put_exercise_preference(
                               .where(ExercisePreference.athlete_id == a.id)).all())
         if count >= MAX_EXERCISE_PREFERENCES:
             raise HTTPException(422, f"Limite de {MAX_EXERCISE_PREFERENCES} trocas fixas.")
-        pref = ExercisePreference(athlete_id=a.id, exercise_id=exercise_id)
+        pref = ExercisePreference(athlete_id=a.id, exercise_id=exercise_id, replacement_id=body.replacement_id)
         s.add(pref)
-    pref.replacement_id = body.replacement_id
-    # A chain (A -> B, B -> C) would only apply its first link: point the old swaps straight at the end.
+    # Only one link is applied when generating: resolve chains so every swap points at its final exercise.
+    current = {p.exercise_id: p.replacement_id for p in s.scalars(
+        select(ExercisePreference).where(ExercisePreference.athlete_id == a.id)) if p.exercise_id != exercise_id}
+    target, seen = body.replacement_id, {exercise_id}
+    while target in current and target not in seen:  # A -> B while B -> C: A goes straight to C
+        seen.add(target)
+        target = current[target]
+    if target == exercise_id:  # B -> A undone by A -> B: the swap cancels out
+        raise HTTPException(422, "Essa troca desfaz outra troca fixa: remova a anterior em Perfil.")
+    pref.replacement_id = target
+    # Older swaps that ended at this exercise (X -> A) now end where A goes.
     for other in s.scalars(select(ExercisePreference).where(ExercisePreference.athlete_id == a.id,
                                                              ExercisePreference.replacement_id == exercise_id)):
-        other.replacement_id = body.replacement_id
+        other.replacement_id = target
+    s.flush()
+    # A swap that now points at itself is no swap at all.
+    s.execute(delete(ExercisePreference).where(ExercisePreference.athlete_id == a.id,
+                                               ExercisePreference.exercise_id == ExercisePreference.replacement_id))
+    forget_replacements(s, a)
     s.commit()
     return _preference_out(pref)
 
@@ -193,6 +211,7 @@ def put_exercise_preference(
 def delete_exercise_preference(exercise_id: str, a: AthleteDep, s: Db) -> None:
     s.execute(delete(ExercisePreference).where(ExercisePreference.athlete_id == a.id,
                                                ExercisePreference.exercise_id == exercise_id))
+    forget_replacements(s, a)
     s.commit()
 
 
@@ -253,7 +272,7 @@ def _missed_days(s: Db, a: Athlete, day: date) -> list[date]:
     missed: list[date] = []
     d = day - timedelta(days=1)
     while d >= a.cycle_start and len(missed) < cycle_len - 1:
-        plan = session_for(s, a, d, with_readiness=False, records=[])
+        plan = plan_shape(s, a, d)
         if not plan.is_training_day or d in trained:
             break
         missed.append(d)
@@ -304,10 +323,15 @@ def get_armor_load(a: AthleteDep, s: Db, on: Day | None = None) -> ArmorLoadOut:
 @router.get("/athletes/{athlete_id}/strength", response_model=list[StrengthOut])
 def get_strength(a: AthleteDep, s: Db) -> list[StrengthOut]:
     """Estimated 1RM per lift, from sets logged with reps + RPE."""
-    records = athlete_records(s, a.id)
+    return strength_out(a, athlete_records(s, a.id))
+
+
+def strength_out(a: Athlete, records: Sequence[SetRecord]) -> list[StrengthOut]:
     out = []
     for ex_id in sorted({r.exercise_id for r in records}):
-        ex = EXERCISES[ex_id]
+        ex = EXERCISES.get(ex_id)
+        if ex is None:  # an id since removed from the catalog: its history can't be scored
+            continue
         hist = e1rm_history(records, ex_id, system_extra(ex, a.bodyweight_kg))
         if (cur := current_e1rm(hist)) is not None:
             out.append(StrengthOut(exercise_id=ex_id, name=ex.name, e1rm_kg=cur,

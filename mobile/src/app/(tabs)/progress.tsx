@@ -15,6 +15,7 @@ import { cachedRoutine, storedAthlete, storedProgressReport, storeProgressReport
 import { colors, levelColor, radius, space } from '../../theme';
 
 const RANGES = [30, 60, 90] as const;
+const STALE_MS = 60_000;
 const DEFAULT_RANGE = 60;
 const LEVEL_LABEL: Record<ReadinessLevel, string> = { green: 'verde', amber: 'amarelo', red: 'vermelho' };
 const kg = (v: number) => `${decimal(v)} kg`;
@@ -29,8 +30,14 @@ export default function ProgressScreen() {
   const [lift, setLift] = useState<string | null>(null);
   const run = useRef(0); // only the latest range may write state: a slow 90-day reply must not land under "30 dias"
 
-  const load = useCallback(async () => {
+  // A tab switch within a minute reuses the report on screen; pull-to-refresh always fetches.
+  const fetched = useRef<{ days: number; at: number } | null>(null);
+
+  const load = useCallback(async (force = false) => {
     if (!athleteId) return;
+    const f = fetched.current;
+    if (!force && f && f.days === days && Date.now() - f.at < STALE_MS) return;
+    fetched.current = { days, at: Date.now() };
     const id = ++run.current;
     const live = () => id === run.current;
     setLoading(true);
@@ -42,6 +49,7 @@ export default function ProgressScreen() {
       setOffline(false);
     } catch {
       if (!live()) return;
+      fetched.current = null; // offline: try again on the next visit
       setOffline(true);
     } finally {
       if (live()) setLoading(false);
@@ -66,7 +74,7 @@ export default function ProgressScreen() {
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.textMuted} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => load(true)} tintColor={colors.textMuted} />}
       >
         <ScreenHeader title="Progresso" right={offline ? <Badge label="Dados salvos" color={colors.warning} /> : undefined} />
 

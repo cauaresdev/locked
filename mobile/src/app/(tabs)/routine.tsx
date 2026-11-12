@@ -27,15 +27,16 @@ import {
   T,
   TextLink,
 } from '../../components/ui';
-import { isoDay, parseTime } from '../../engine/format';
+import { parseTime } from '../../engine/format';
+import { useToday } from '../../hooks/useToday';
 import { routineSummary, SECTION_TITLE, withCheck } from '../../engine/routine';
 import { cancelRoutineReminders, requestNotificationPermission, scheduleRoutineReminders } from '../../notifications';
 import { refreshTrainingReminders } from '../../reminders';
 import {
   cachedRoutine,
-  dropRoutineCheck,
   healthSyncEnabled,
   pendingRoutineChecks,
+  removeRoutineCheck,
   queueRoutineCheck,
   routineRemindersEnabled,
   setRoutineRemindersEnabled,
@@ -61,13 +62,13 @@ function hours(h: number): string {
 export default function RoutineScreen() {
   const router = useRouter();
   const [athlete, setAthlete] = useState<Athlete | null>(storedAthlete());
-  const day = isoDay();
+  const day = useToday();
   const [routine, setRoutine] = useState<Routine | null>(() => cachedRoutine(day));
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [guided, setGuided] = useState(false);
-  const [reminders, setReminders] = useState(routineRemindersEnabled());
+  const [reminders, setReminders] = useState(routineRemindersEnabled);
   const run = useRef(0); // a slow response must not overwrite a newer tick
   const athleteId = athlete?.id;
 
@@ -107,9 +108,11 @@ export default function RoutineScreen() {
     const id = ++run.current;
     const optimistic = withCheck(routine, item.id, body);
     setRoutine(optimistic); // instant; the server's answer replaces it
+    // The tick queued before this request is superseded by it; one queued while it was in flight is newer.
+    const superseded = pendingRoutineChecks(day).find((c) => c.item === item.id);
     try {
       const r = await api.setRoutineItem(athleteId, day, item.id, body);
-      dropRoutineCheck(day, item.id); // this tick is newer than any queued one for the item
+      if (superseded) removeRoutineCheck(superseded);
       if (id === run.current) show(r);
       setError(pendingRoutineChecks(day).length ? OFFLINE_TICKS : null);
     } catch (e) {

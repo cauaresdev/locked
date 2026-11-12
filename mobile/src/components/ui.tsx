@@ -102,9 +102,14 @@ export function CountUp({
   const [shown, setShown] = useState(reduceMotion() ? value : 0);
   useEffect(() => {
     const id = anim.addListener(({ value: v }) => setShown(v));
-    Animated.timing(anim, { toValue: value, duration: ms(700), easing: Easing.out(Easing.cubic), useNativeDriver: false })
-      .start(() => setShown(value));
-    return () => anim.removeListener(id);
+    const run = Animated.timing(anim, { toValue: value, duration: ms(700), easing: Easing.out(Easing.cubic),
+      useNativeDriver: false });
+    // Only a finished run snaps to the target: an interrupted one (new value) would flash the old target.
+    run.start(({ finished }) => finished && setShown(value));
+    return () => {
+      run.stop();
+      anim.removeListener(id);
+    };
   }, [anim, value]);
   const fmt = format ?? ((n: number) => n.toFixed(digits).replace('.', ','));
   return (
@@ -465,14 +470,17 @@ export function Dots({ done, total, color = colors.accent }: { done: number; tot
 /** One dot; filling it pops it (a set just logged, a habit just ticked). */
 function Dot({ on, color }: { on: boolean; color: string }) {
   const scale = useState(() => new Animated.Value(1))[0];
-  const [was, setWas] = useState(on);
-  if (was !== on) {
-    setWas(on);
-    if (on && !reduceMotion()) {
-      scale.setValue(1.8);
-      Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 12 }).start();
+  const mounted = useRef(false);
+  useEffect(() => {
+    // Not on mount: only a dot that fills while on screen pops.
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
     }
-  }
+    if (!on || reduceMotion()) return;
+    scale.setValue(1.8);
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 12 }).start();
+  }, [on, scale]);
   return <Animated.View style={[styles.dot, { backgroundColor: on ? color : colors.surfaceHigh, transform: [{ scale }] }]} />;
 }
 

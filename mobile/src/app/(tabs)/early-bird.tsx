@@ -9,9 +9,10 @@ import type { Athlete, EarlyBird } from '../../api/types';
 import { fresh, useDeviceControls, useLiveHr } from '../../ble/devices';
 import { Meter } from '../../components/Meter';
 import { Badge, Button, Panel, Row, ScreenHeader, T, TextLink } from '../../components/ui';
-import { clock, isoDay } from '../../engine/format';
+import { clock } from '../../engine/format';
 import { useComms } from '../../hooks/useComms';
-import { cancelEarlyBird, scheduleEarlyBird, scheduleRoutineReminders } from '../../notifications';
+import { useToday } from '../../hooks/useToday';
+import { cancelEarlyBird, requestNotificationPermission, scheduleEarlyBird, scheduleRoutineReminders } from '../../notifications';
 import { routineRemindersEnabled, storeAthlete, storedAthlete, storeRoutine } from '../../storage/db';
 import { flushTelemetry } from '../../sync';
 import { colors, space } from '../../theme';
@@ -46,7 +47,7 @@ export default function EarlyBirdScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const wasInZone = useRef<boolean | null>(null);
   const tick = useRef<() => void>(() => {});
-  const day = isoDay();
+  const day = useToday();
   const athleteId = athlete?.id;
 
   const refresh = useCallback(async () => {
@@ -91,15 +92,17 @@ export default function EarlyBirdScreen() {
       wasInZone.current = inZone;
     };
   });
-  // Tabs stay mounted: tick only while this tab is on screen.
+  // Tabs stay mounted: tick while this tab is on screen, and through the open window on any tab
+  // (the layout keeps this screen unfrozen so the zone cues keep speaking there).
+  const ticking = focused || inWindow;
   useEffect(() => {
-    if (!focused) return;
+    if (!ticking) return;
     const id = setInterval(() => {
       setNow(Date.now());
       tick.current();
     }, 1000);
     return () => clearInterval(id);
-  }, [focused]);
+  }, [ticking]);
 
   // Screen stays on only during the open window on this tab, not in the rest of the app.
   useEffect(() => {
@@ -122,12 +125,14 @@ export default function EarlyBirdScreen() {
   async function saveAlarm(enabled: boolean, wake: string) {
     if (!athlete) return;
     try {
-      if (enabled && !(await scheduleEarlyBird(wake))) {
+      if (enabled && !(await requestNotificationPermission())) {
         setError('Permissão de notificação negada.');
         return;
       }
-      if (!enabled) await cancelEarlyBird();
+      // Server first: if the save fails, the device alarm must still match what the screen shows.
       const a = await api.updateAthlete(athlete.id, { early_bird_enabled: enabled, wake_time: wake });
+      if (a.early_bird_enabled) await scheduleEarlyBird(a.wake_time);
+      else await cancelEarlyBird();
       storeAthlete(a);
       setAthlete(a);
       if (routineRemindersEnabled() && wake !== athlete.wake_time) {

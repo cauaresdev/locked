@@ -231,3 +231,49 @@ def test_standing_swaps_api(client, auth):
     assert client.delete(f"{base}/exercise-preferences/{planned}", headers=auth).status_code == 204
     s = client.get(f"{base}/sessions/{day}", headers=auth).json()
     assert next(b for b in s["blocks"] if b["order"] == block["order"])["exercises"][0]["exercise_id"] == planned
+
+
+def test_standing_swaps_resolve_forward_chains_and_refuse_reversals(client, auth):
+    a = make_athlete(client, auth, tier="push_pull_legs")
+    base = f"/athletes/{a['id']}"
+    day = today().isoformat()
+    s = client.get(f"{base}/sessions/{day}", headers=auth).json()
+    block = next(b for b in s["blocks"] if b["name"] == "Acessórios")
+    planned = block["exercises"][0]["exercise_id"]
+    alts = client.get(f"{base}/sessions/{day}/alternatives", params={"block": block["order"], "index": 0},
+                      headers=auth).json()
+    b, c = alts[0]["exercise_id"], alts[1]["exercise_id"]
+
+    client.put(f"{base}/exercise-preferences/{b}", json={"replacement_id": c}, headers=auth)
+    # planned -> b while b -> c: planned goes straight to c (only one link is applied when generating).
+    r = client.put(f"{base}/exercise-preferences/{planned}", json={"replacement_id": b}, headers=auth)
+    assert r.status_code == 200 and r.json()["replacement_id"] == c
+    # A swap that leads back to its own exercise is refused: c -> b (b -> c) and c -> planned (planned -> c).
+    for back in (b, planned):
+        assert client.put(f"{base}/exercise-preferences/{c}", json={"replacement_id": back},
+                          headers=auth).status_code == 422
+    prefs = {p["exercise_id"]: p["replacement_id"]
+             for p in client.get(f"{base}/exercise-preferences", headers=auth).json()}
+    assert prefs == {b: c, planned: c}
+
+
+def test_alternatives_reach_the_fourth_block_of_split_days(client, auth):
+    a = make_athlete(client, auth, tier="batfleck")
+    base = f"/athletes/{a['id']}"
+    sched = client.get(f"{base}/schedule", params={"start": today().isoformat(), "days": 7}, headers=auth).json()
+    four = next((s for s in sched if len(s["blocks"]) >= 4), None)
+    assert four is not None, "batfleck has split days with 4 blocks"
+    day = (today() + timedelta(days=sched.index(four))).isoformat()
+    r = client.get(f"{base}/sessions/{day}/alternatives", params={"block": 4, "index": 0}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert client.get(f"{base}/sessions/{day}/alternatives", params={"block": 9, "index": 0},
+                      headers=auth).status_code == 422  # a block the day doesn't have
+
+
+def test_future_weigh_in_is_refused(client, auth):
+    a = make_athlete(client, auth)
+    url = f"/athletes/{a['id']}/weight"
+    far = (today() + timedelta(days=30)).isoformat()
+    assert client.put(url, json={"day": far, "weight_kg": 70}, headers=auth).status_code == 422
+    r = client.put(url, json={"day": today().isoformat(), "weight_kg": 88}, headers=auth)
+    assert r.status_code == 200 and r.json()["trend_kg"] == 88
