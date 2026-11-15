@@ -1,6 +1,6 @@
 import { Animated, StyleSheet, View } from 'react-native';
 
-import { colors, space } from '../theme';
+import { colors, space, themed } from '../theme';
 import { Row, T, useFillWidth } from './ui';
 
 /**
@@ -45,8 +45,8 @@ export function Meter({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   track: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceHigh, marginBottom: space.xs },
   fill: { height: 6, borderRadius: 3 },
   mark: { position: 'absolute', top: -2, width: 2, height: 10, borderRadius: 1, backgroundColor: colors.textMuted },
-});
+}));

@@ -2,7 +2,7 @@ jest.mock('expo-notifications', () => ({}));
 
 /* eslint-disable import/first */
 import { parseTime } from '../engine/format';
-import { trainingReminderPlan } from '../notifications';
+import { shouldSoundLateEnd, trainingReminderPlan } from '../notifications';
 /* eslint-enable import/first */
 
 const day = (d: string, training = true) =>
@@ -25,4 +25,24 @@ test('typed training times are normalised', () => {
   expect(parseTime('18h30')).toBe('18:30');
   expect(parseTime('25:00')).toBeNull();
   expect(parseTime('abc')).toBeNull();
+});
+
+describe('a rest noticed late', () => {
+  const alert = (shown: boolean) => ({ cancel: jest.fn(), shown: jest.fn(async () => shown) });
+
+  test('stays quiet when the OS alert already rang', async () => {
+    const a = alert(true);
+    expect(await shouldSoundLateEnd(a)).toBe(false);
+    expect(a.cancel).not.toHaveBeenCalled();
+  });
+
+  test('beeps in the app and drops the alert Android was still holding back', async () => {
+    const a = alert(false);
+    expect(await shouldSoundLateEnd(a)).toBe(true);
+    expect(a.cancel).toHaveBeenCalled();
+  });
+
+  test('beeps in the app when no alert could be scheduled', async () => {
+    expect(await shouldSoundLateEnd(null)).toBe(true);
+  });
 });

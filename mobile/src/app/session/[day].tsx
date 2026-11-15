@@ -3,17 +3,18 @@ import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Animated, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle } from 'react-native-svg';
 
 import type { Block, Prescription, Session, SetLog } from '../../api/types';
 import { SetRunner, type SetResult } from '../../components/SetRunner';
 import { LiveHr } from '../../components/LiveHr';
+import { ProgressRing } from '../../components/Rings';
 import { TimerButton } from '../../components/TimerButton';
 import { fresh, useLiveBike } from '../../ble/devices';
-import { ExerciseThumb, HowToLink } from '../../components/ExerciseDemo';
+import { ExerciseThumb, HowToLink, sessionCover } from '../../components/ExerciseDemo';
+import { ON_PHOTO, ON_PHOTO_MUTED, PhotoCover } from '../../components/PhotoCover';
 import { Icon } from '../../components/Icon';
 import { toast } from '../../components/Toast';
 import {
@@ -21,7 +22,6 @@ import {
   Button,
   Checkbox,
   CountUp,
-  Dots,
   FadeIn,
   Panel,
   PopIn,
@@ -51,11 +51,17 @@ import { useComms } from '../../hooks/useComms';
 import { useCountdown } from '../../hooks/useCountdown';
 import { useCues } from '../../hooks/useCues';
 import { api } from '../../api/client';
-import { openExactAlarmSettings, prepareRestAlerts, scheduleRestAlert } from '../../notifications';
+import {
+  openExactAlarmSettings,
+  prepareRestAlerts,
+  scheduleRestAlert,
+  shouldSoundLateEnd,
+  type RestAlert,
+} from '../../notifications';
 import { cachedSession, enqueueLogs, loadProgress, saveProgress, storedAthlete, timeBudget, undoLog } from '../../storage/db';
 import { fitToBudget } from '../../engine/timeBudget';
 import { flushAll, loadSession, prefetchSchedule } from '../../sync';
-import { colors, radius, space } from '../../theme';
+import { colors, radius, space, themed } from '../../theme';
 
 const EXACT_ALARM_ASKED_KEY = 'knightfall_exact_alarm_asked'; // once: Ajustes keeps the switch afterwards
 
@@ -117,6 +123,7 @@ export default function SessionScreen() {
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useState(() => new Animated.Value(0))[0];
 
   useEffect(() => {
     prepareRestAlerts()
@@ -126,7 +133,7 @@ export default function SessionScreen() {
         Alert.alert(
           'Aviso de descanso na hora certa',
           'Com a tela travada, o Android pode atrasar o aviso de fim do descanso em quase todo o tempo do ' +
-            'descanso. Ative “Alarmes e lembretes” para o Knightfall e ele toca no segundo exato.',
+            'descanso. Ative “Alarmes e lembretes” para o Kinetic e ele toca no segundo exato.',
           [{ text: 'Agora não', style: 'cancel' }, { text: 'Ativar', onPress: openExactAlarmSettings }],
         );
       })
@@ -310,18 +317,28 @@ export default function SessionScreen() {
           </T>
         </Pressable>
       </View>
-      <View style={styles.progress} accessible accessibilityLabel={`Sessão ${Math.round(share * 100)}% concluída`}>
-        <ProgressBar value={share} color={done ? colors.success : colors.accent} />
-      </View>
 
-      <ScrollView
+      <Animated.ScrollView
         ref={scrollRef}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+        scrollEventThrottle={16}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
       >
-        <T variant="display" style={{ fontSize: 34, lineHeight: 38 }}>{session.day_name}</T>
+        <PhotoCover source={sessionCover(view)} height={190} scrollY={scrollY}>
+          <T variant="tag" color={ON_PHOTO_MUTED}>
+            {view.blocks.length} {view.blocks.length === 1 ? 'bloco' : 'blocos'} · {view.target_duration_minutes} min
+          </T>
+          <T variant="display" color={ON_PHOTO} style={{ fontSize: 32, lineHeight: 36 }}>{session.day_name}</T>
+          <Row style={{ gap: space.md }}>
+            <View style={{ flex: 1 }}>
+              <ProgressBar value={share} color={done ? colors.success : ON_PHOTO} trackColor="rgba(255,255,255,0.25)" />
+            </View>
+            <T variant="label" color={ON_PHOTO}>{Math.round(share * 100)}%</T>
+          </Row>
+        </PhotoCover>
         {done && (
           <SessionSummary progress={progress} onShown={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
             onClose={() => router.back()} />
@@ -351,22 +368,40 @@ export default function SessionScreen() {
           const complete = blockComplete(view, block.order, progress);
           return (
             <View key={block.order} style={{ gap: space.md }}>
-              <View style={{ gap: 2 }}>
-                <Row style={{ justifyContent: 'space-between' }}>
-                  <T variant="label" color={complete ? colors.success : colors.textMuted}>
-                    Bloco {block.order} · {block.duration_minutes} min
-                  </T>
-                  {locked && <Badge label="Bloqueado" color={colors.warning} />}
-                  {complete && <PopIn><Badge label="Concluído" color={colors.success} /></PopIn>}
-                </Row>
-                <T variant="title" accessibilityRole="header">{block.name}</T>
-              </View>
+              <Row style={{ gap: space.md }}>
+                <View style={[styles.blockNo, complete && { backgroundColor: colors.success }]}>
+                  {complete
+                    ? <Icon name="check" size={16} color={colors.surface} strokeWidth={3} />
+                    : <T variant="title" color={colors.onAccent} style={{ fontSize: 15 }}>{block.order}</T>}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <T variant="title" accessibilityRole="header">{block.name}</T>
+                  <T variant="label">{block.duration_minutes} min · {block.exercises.length} {block.exercises.length === 1 ? 'exercício' : 'exercícios'}</T>
+                </View>
+                {locked && <Badge label="Bloqueado" color={colors.warning} />}
+                {complete && <PopIn><Badge label="Concluído" color={colors.success} /></PopIn>}
+              </Row>
               {locked ? (
-                <Panel accent={colors.warning}>
-                  <T color={colors.warning}>
-                    Conclua a preparação articular antes da carga. Sem Bloco 1, sem Bloco {block.order}.
-                  </T>
-                </Panel>
+                <>
+                  <Panel accent={colors.warning}>
+                    <Row style={{ gap: space.sm, alignItems: 'flex-start' }}>
+                      <Icon name="alert" size={18} color={colors.warning} />
+                      <T color={colors.warning} style={{ flex: 1 }}>
+                        Conclua a preparação articular antes da carga. Sem Bloco 1, sem Bloco {block.order}.
+                      </T>
+                    </Row>
+                  </Panel>
+                  {/* What is coming, so the athlete can set up the stations while warming up. */}
+                  {block.exercises.map((rx, i) => (
+                    <View key={i} style={styles.preview}>
+                      <ExerciseThumb exerciseId={rx.exercise_id} size={56} width={68} radius={radius.md} />
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <T style={{ fontWeight: '600' }} numberOfLines={1}>{rx.name}</T>
+                        <T variant="hint" numberOfLines={1}>{rxSummary(rx)}</T>
+                      </View>
+                    </View>
+                  ))}
+                </>
               ) : block.execution_style === 'checklist' ? (
                 block.exercises.map((rx, i) => {
                   const key = itemKey(block.order, i);
@@ -383,8 +418,10 @@ export default function SessionScreen() {
                           }}
                           accessibilityRole="checkbox" accessibilityState={{ checked }}>
                           <Row style={{ gap: space.md }}>
+                            <ExerciseThumb exerciseId={rx.exercise_id} size={56} width={68} radius={radius.md}
+                              style={checked ? { opacity: 0.5 } : null} />
                             <View style={[styles.check, checked && styles.checkOn]}>
-                              {checked && <PopIn><Icon name="check" size={14} color={colors.bg} strokeWidth={3} /></PopIn>}
+                              {checked && <PopIn><Icon name="check" size={14} color={colors.surface} strokeWidth={3} /></PopIn>}
                             </View>
                             <View style={{ flex: 1 }}>
                               <T color={checked ? colors.textMuted : colors.text}
@@ -394,7 +431,7 @@ export default function SessionScreen() {
                           </Row>
                         </Pressable>
                         {rx.mode === 'timed' && rx.duration_seconds && !checked && (
-                          <TimerButton seconds={rx.duration_seconds} onDone={() => toggle(true)} />
+                          <TimerButton seconds={rx.duration_seconds} label={rx.name} onDone={() => toggle(true)} />
                         )}
                       </Row>
                       {/* A sibling, not inside the checkbox: links never nest in another control. */}
@@ -416,16 +453,24 @@ export default function SessionScreen() {
                           accessibilityLabel={`${rx.name}, ${doneSets} de ${rx.sets} séries`}
                           accessibilityState={{ expanded: isActive && !finished }}
                           style={styles.setHeader}>
-                          <Row style={{ justifyContent: 'space-between' }}>
-                            <ExerciseThumb exerciseId={rx.exercise_id} size={40} />
-                            <T variant="title" color={finished ? colors.textMuted : colors.text} style={{ flex: 1, fontSize: 16 }}>
-                              {rx.name}
-                            </T>
+                          <Row style={{ gap: space.md, alignItems: 'flex-start' }}>
+                            <ExerciseThumb exerciseId={rx.exercise_id} size={84} width={100} radius={radius.md}
+                              style={finished ? { opacity: 0.55 } : null} />
+                            <View style={{ flex: 1, gap: 4 }}>
+                              <T variant="title" color={finished ? colors.textMuted : colors.text} style={{ fontSize: 16 }}
+                                numberOfLines={2}>
+                                {rx.name}
+                              </T>
+                              <Badge
+                                label={finished ? 'Concluído' : doneSets > 0 ? `${doneSets}/${rx.sets} séries` : setsLabel(rx.sets)}
+                                color={finished ? colors.success : doneSets > 0 || isActive ? colors.accent : colors.textMuted}
+                              />
+                              <T variant="hint" numberOfLines={2}>{rxSummary(rx)}</T>
+                            </View>
                             {finished
                               ? <PopIn><Icon name="check" size={20} color={colors.success} strokeWidth={2.5} /></PopIn>
-                              : <Dots done={doneSets} total={rx.sets} color={colors.success} />}
+                              : <Icon name={isActive ? 'chevron-down' : 'chevron-right'} size={18} color={colors.textFaint} />}
                           </Row>
-                          <T variant="hint">{rxSummary(rx)}</T>
                         </Pressable>
                         <Row style={{ gap: space.lg }}>
                           <HowToLink rx={rx} />
@@ -476,7 +521,7 @@ export default function SessionScreen() {
             </View>
           );
         })}
-      </ScrollView>
+      </Animated.ScrollView>
 
       {swapFor && athleteId && (
         <SwapSheet
@@ -520,6 +565,8 @@ export default function SessionScreen() {
   );
 }
 
+const setsLabel = (n: number) => `${n} ${n === 1 ? 'série' : 'séries'}`;
+
 /** Share of the session done: sets for straight sets, items for checklists, whole AMRAP blocks. */
 function sessionShare(view: Session, progress: Progress): number {
   let done = 0;
@@ -556,7 +603,7 @@ function SessionSummary({ progress, onShown, onClose }: { progress: Progress; on
     <FadeIn>
       <Panel style={styles.summary}>
         <PopIn style={styles.summaryBadge}>
-          <Icon name="check" size={34} color={colors.bg} strokeWidth={3} />
+          <Icon name="check" size={34} color={colors.surface} strokeWidth={3} />
         </PopIn>
         <T variant="display" style={{ textAlign: 'center' }}>SESSÃO CONCLUÍDA</T>
         <Row style={{ alignSelf: 'stretch', justifyContent: 'space-around', marginTop: space.sm }}>
@@ -651,9 +698,10 @@ function Amrap({
         </View>
       </Row>
       {block.exercises.map((rx, i) => (
-        <Row key={i} style={{ justifyContent: 'space-between' }}>
+        <Row key={i} style={{ justifyContent: 'space-between', gap: space.md }}>
+          <ExerciseThumb exerciseId={rx.exercise_id} size={56} width={68} radius={radius.md} />
           <View style={{ flex: 1 }}>
-            <T>{rx.name}</T>
+            <T style={{ fontWeight: '600' }}>{rx.name}</T>
             <T variant="hint">{rxSummary(rx)}</T>
             <Row style={{ gap: space.lg }}>
               <HowToLink rx={rx} />
@@ -663,7 +711,7 @@ function Amrap({
             </Row>
           </View>
           {rx.pattern === 'sprint' && power != null && <Badge label={`${power} W`} color={colors.warning} />}
-          {rx.mode === 'timed' && rx.duration_seconds && <TimerButton seconds={rx.duration_seconds} />}
+          {rx.mode === 'timed' && rx.duration_seconds && <TimerButton seconds={rx.duration_seconds} label={rx.name} />}
         </Row>
       ))}
       {timer.running && restRound != null && restSeconds > 0 && (
@@ -706,15 +754,18 @@ function Amrap({
 /** Prescribed rest between AMRAP rounds: the block clock keeps running, so it is a strip, not a screen. */
 function RoundRest({ seconds, onDone }: { seconds: number; onDone: () => void }) {
   const play = useCues();
-  const timer = useCountdown(seconds, (lateMs) => {
-    if (lateMs <= LATE_MS) play('done');
+  const alert = useRef<RestAlert | null>(null);
+  const timer = useCountdown(seconds, async (lateMs) => {
+    if (lateMs <= LATE_MS || (await shouldSoundLateEnd(alert.current))) play('done');
     onDone();
   });
   const init = useRef({ start: timer.start, seconds });
   useEffect(() => {
     const r = init.current;
     r.start();
-    return scheduleRestAlert(r.seconds, 'Próxima rodada. Executar.');
+    const a = scheduleRestAlert(r.seconds, 'Próxima rodada. Executar.');
+    alert.current = a;
+    return () => a.cancel();
   }, []);
   return (
     <Row style={styles.roundRest}>
@@ -801,14 +852,14 @@ function SwapSheet({
 const LATE_MS = 1500;
 const REST_STEP = 15;
 
-type UpNext = { name: string; set: string; detail: string };
+type UpNext = { name: string; exerciseId: string; set: string; detail: string };
 
 function upNextOf(rx: Prescription, set: number, load: number | null): UpNext {
   const detail = [
     load != null && load > 0 ? `${String(load).replace('.', ',')} kg` : null,
     rx.target_rpe != null ? `esforço alvo ${String(rx.target_rpe).replace('.', ',')}` : null,
   ].filter(Boolean).join(' · ');
-  return { name: rx.name, set: `Série ${set}/${rx.sets}`, detail };
+  return { name: rx.name, exerciseId: rx.exercise_id, set: `Série ${set}/${rx.sets}`, detail };
 }
 
 /** Rest between sets: full screen by default (it is the screen seen most mid-workout), minimizable to a bar. */
@@ -829,26 +880,28 @@ function Rest({
   const insets = useSafeAreaInsets();
   const [total, setTotal] = useState(seconds);
   const [minimized, setMinimized] = useState(false);
-  const timer = useCountdown(seconds, (lateMs) => {
-    const late = lateMs > LATE_MS;
+  // Unmount (done, skipped, set undone, screen left) cancels the OS alert and clears it from the tray.
+  const alert = useRef<RestAlert | null>(null);
+  const timer = useCountdown(seconds, async (lateMs) => {
+    // Noticed late: the OS alert normally rang already. If Android was still holding it back, it
+    // never will (it is cancelled here), so the app sounds the end itself.
+    const late = lateMs > LATE_MS && !(await shouldSoundLateEnd(alert.current));
     if (!late) play('done');
     onDone(late);
   });
-  // Unmount (done, skipped, set undone, screen left) cancels the OS alert and clears it from the tray.
-  const cancelAlert = useRef<(() => void) | null>(null);
   const init = useRef({ start: timer.start, seconds, next });
   useEffect(() => {
     const r = init.current;
     r.start();
-    cancelAlert.current = scheduleRestAlert(r.seconds, r.next);
-    return () => cancelAlert.current?.();
+    alert.current = scheduleRestAlert(r.seconds, r.next);
+    return () => alert.current?.cancel();
   }, []);
 
   const adjust = (delta: number) => {
     const left = timer.extend(delta);
     setTotal((t) => Math.max(left, t + delta));
-    cancelAlert.current?.();
-    cancelAlert.current = left > 0 ? scheduleRestAlert(left, next) : null;
+    alert.current?.cancel();
+    alert.current = left > 0 ? scheduleRestAlert(left, next) : null;
     Haptics.selectionAsync().catch(() => {});
   };
 
@@ -882,10 +935,14 @@ function Rest({
       </Row>
 
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: space.xl, alignSelf: 'stretch' }}>
-        <RestRing progress={total > 0 ? left / total : 0} color={timeColor} label={`${left} segundos de descanso`}>
-          <T variant="hero" color={timeColor} style={{ fontSize: 60, lineHeight: 68 }}>{clock(left)}</T>
-          <T variant="label">de {clock(total)}</T>
-        </RestRing>
+        <View accessible accessibilityRole="timer" accessibilityLabel={`${left} segundos de descanso`}>
+          {/* Linear over each second, so the ring drains smoothly instead of ticking. */}
+          <ProgressRing value={total > 0 ? Math.max(0, left - 1) / total : 0} size={248} stroke={10} color={timeColor}
+            linear duration={1000}>
+            <T variant="hero" color={timeColor} style={{ fontSize: 60, lineHeight: 68 }}>{clock(left)}</T>
+            <T variant="label">de {clock(total)}</T>
+          </ProgressRing>
+        </View>
         <Row style={{ alignSelf: 'stretch' }}>
           <Button tone="secondary" label={`−${clock(REST_STEP)}`} onPress={() => adjust(-REST_STEP)} disabled={left <= REST_STEP}
             accessibilityLabel={`Menos ${REST_STEP} segundos`} style={{ flex: 1 }} />
@@ -896,9 +953,14 @@ function Rest({
 
       {upNext && (
         <Panel style={{ alignSelf: 'stretch' }}>
-          <T variant="label">A seguir · {upNext.set}</T>
-          <T variant="title">{upNext.name}</T>
-          {upNext.detail !== '' && <T variant="hint">{upNext.detail}</T>}
+          <Row style={{ gap: space.md }}>
+            <ExerciseThumb exerciseId={upNext.exerciseId} size={64} width={80} radius={radius.md} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <T variant="label">A seguir · {upNext.set}</T>
+              <T variant="title" numberOfLines={2}>{upNext.name}</T>
+              {upNext.detail !== '' && <T variant="hint">{upNext.detail}</T>}
+            </View>
+          </Row>
         </Panel>
       )}
       <Button label="Pular descanso" onPress={onSkip} style={{ alignSelf: 'stretch' }} />
@@ -907,32 +969,7 @@ function Rest({
   );
 }
 
-/** Ring that empties as the rest runs down. */
-function RestRing({ progress, color, label, children }: {
-  progress: number;
-  color: string;
-  label: string;
-  children: ReactNode;
-}) {
-  const size = 248;
-  const stroke = 8;
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}
-      accessible accessibilityRole="timer" accessibilityLabel={label}>
-      <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.surfaceHigh} strokeWidth={stroke} fill="none" />
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none"
-          strokeLinecap="round" strokeDasharray={`${c} ${c}`} strokeDashoffset={c * (1 - Math.min(1, Math.max(0, progress)))}
-          rotation={-90} origin={`${size / 2}, ${size / 2}`} />
-      </Svg>
-      {children}
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
@@ -955,7 +992,13 @@ const styles = StyleSheet.create({
   },
   checkOn: { backgroundColor: colors.success, borderColor: colors.success },
   content: { padding: space.lg, gap: space.xl, paddingBottom: 160 },
-  progress: { paddingHorizontal: space.lg, paddingBottom: space.sm },
+  preview: {
+    flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.sm, borderRadius: radius.lg,
+    backgroundColor: colors.surface, opacity: 0.6,
+  },
+  blockNo: {
+    width: 32, height: 32, borderRadius: 16, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
+  },
   summary: { alignItems: 'center', gap: space.md, padding: space.xl, backgroundColor: colors.surface },
   summaryBadge: {
     width: 64, height: 64, borderRadius: 32, backgroundColor: colors.success,
@@ -987,4 +1030,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.lg,
   },
-});
+}));

@@ -40,10 +40,10 @@ import {
   storedAthlete,
 } from '../../storage/db';
 import { flushNutrition } from '../../sync';
-import { colors, radius, space } from '../../theme';
+import { colors, radius, space, themed } from '../../theme';
 
-const ALERT_COLOR: Record<Alert['level'], string> = { red: colors.danger, amber: colors.warning, info: colors.textMuted };
-const ALERT_TEXT: Record<Alert['level'], string> = { red: colors.danger, amber: colors.warning, info: colors.textMuted };
+const ALERT_COLOR = themed((): Record<Alert['level'], string> => ({ red: colors.danger, amber: colors.warning, info: colors.textMuted }));
+const ALERT_TEXT = themed((): Record<Alert['level'], string> => ({ red: colors.danger, amber: colors.warning, info: colors.textMuted }));
 const SOURCE_LABEL = { telemetry: 'medido pela frequência cardíaca', estimate: 'estimado', none: 'descanso' } as const;
 const LBM_LABEL = { body_fat: '% gordura', boer: 'fórmula de Boer', assumed: 'estimada — informe % gordura' } as const;
 
@@ -361,7 +361,7 @@ function GoalPicker({ goal, onPick }: { goal: NutritionGoal; onPick: (g: Nutriti
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
   dayNav: {
@@ -373,4 +373,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.xs,
   },
   navBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-});
+}));

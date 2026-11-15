@@ -15,7 +15,7 @@ import { useToday } from '../../hooks/useToday';
 import { cancelEarlyBird, requestNotificationPermission, scheduleEarlyBird, scheduleRoutineReminders } from '../../notifications';
 import { routineRemindersEnabled, storeAthlete, storedAthlete, storeRoutine } from '../../storage/db';
 import { flushTelemetry } from '../../sync';
-import { colors, space } from '../../theme';
+import { colors, space, themed } from '../../theme';
 
 const STATUS_TEXT: Record<EarlyBird['status'], string> = {
   not_started: 'Aguardando check-in',
@@ -232,7 +232,7 @@ export default function EarlyBirdScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
-});
+}));

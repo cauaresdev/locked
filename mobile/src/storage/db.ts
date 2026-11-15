@@ -12,6 +12,7 @@ import type {
   SetLog,
   TelemetrySample,
 } from '../api/types';
+import type { AttendanceDay } from '../engine/achievements';
 import { emptyProgress, type Progress } from '../engine/progress';
 
 // Offline-first local store: gyms in basements have no signal.
@@ -291,7 +292,7 @@ export async function clearLocalData(): Promise<void> {
     ),
   );
   for (const key of [ATHLETE_KEY, DEVICES_KEY, HEALTH_KEY, PROGRESS_KEY, ROUTINE_KEY, REMINDERS_KEY, ROUTINE_OUTBOX_KEY,
-    BUDGET_KEY, MEASUREMENTS_KEY]) {
+    BUDGET_KEY, MEASUREMENTS_KEY, ACHIEVEMENTS_KEY]) {
     Storage.removeItemSync(key);
   }
   athleteMemo = undefined;
@@ -307,6 +308,7 @@ const ROUTINE_KEY = 'routine_day';
 const REMINDERS_KEY = 'routine_reminders';
 const ROUTINE_OUTBOX_KEY = 'routine_outbox';
 const BUDGET_KEY = 'time_budget';
+const ACHIEVEMENTS_KEY = 'achievements';
 
 export type DeviceRole = 'hr' | 'bike';
 export type SavedDevices = Partial<Record<DeviceRole, { id: string; name: string }>>;
@@ -438,4 +440,28 @@ export function storedProgressReport(days: number): ProgressReport | null {
 
 export function storeProgressReport(days: number, report: ProgressReport): void {
   Storage.setItemSync(PROGRESS_KEY, JSON.stringify({ days, report }));
+}
+
+/**
+ * Training history and medals, kept on the device: the progress report only covers its window, so
+ * the trained days it showed (and the records counted) are remembered here for lifetime totals.
+ */
+export interface AchievementsStore {
+  attendance: AttendanceDay[];
+  earned: Record<string, string>; // medal id -> day earned
+  records: number; // most personal records ever counted
+}
+
+export function storedAchievements(): AchievementsStore {
+  try {
+    const raw = Storage.getItemSync(ACHIEVEMENTS_KEY);
+    const saved = raw ? (JSON.parse(raw) as Partial<AchievementsStore>) : {};
+    return { attendance: saved.attendance ?? [], earned: saved.earned ?? {}, records: saved.records ?? 0 };
+  } catch {
+    return { attendance: [], earned: {}, records: 0 };
+  }
+}
+
+export function storeAchievements(a: AchievementsStore): void {
+  Storage.setItemSync(ACHIEVEMENTS_KEY, JSON.stringify(a));
 }

@@ -1,12 +1,18 @@
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Animated, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../api/client';
-import type { ArmorLoad, Routine, Session, StrengthEntry, Weight } from '../../api/types';
+import type { ArmorLoad, Block, Routine, Session, StrengthEntry, Weight } from '../../api/types';
+import { ExerciseThumb, sessionCover } from '../../components/ExerciseDemo';
+import { ON_PHOTO, ON_PHOTO_MUTED, PhotoCover } from '../../components/PhotoCover';
 import { LiveHr } from '../../components/LiveHr';
+import { MedalUnlocked } from '../../components/MedalUnlocked';
+import { Flame, ProgressRing } from '../../components/Rings';
+import { MEDALS, weekGoal, weekOf, type Medal } from '../../engine/achievements';
+import { statsOf, updateAchievements } from '../../engine/achievementsStore';
 import { useToday } from '../../hooks/useToday';
 import {
   Badge,
@@ -19,7 +25,6 @@ import {
   Panel,
   ProgressBar,
   Row,
-  ScreenHeader,
   Section,
   T,
   Tappable,
@@ -30,6 +35,7 @@ import { toast } from '../../components/Toast';
 import { routineSummary } from '../../engine/routine';
 import { BUDGET_OPTIONS, estimateMinutes, fitToBudget } from '../../engine/timeBudget';
 import { addDays, cycleStructureLabel, decimal, formatKgM, parseDecimal as num, rxSummary } from '../../engine/format';
+import { applySwaps, blockComplete, emptyProgress, itemKey, type Progress } from '../../engine/progress';
 import { PROGRAM_NAME } from '../../engine/programs';
 import { syncNight, syncSteps } from '../../health';
 import { refreshTrainingReminders } from '../../reminders';
@@ -45,12 +51,13 @@ import {
   sessionCacheEpoch,
   setTimeBudget,
   storeAthlete,
+  storedAchievements,
   storedAthlete,
   storeRoutine,
   timeBudget,
 } from '../../storage/db';
 import { flushAll, loadSession, prefetchSchedule, refreshAthlete, withPendingChecks, type Source } from '../../sync';
-import { colors, fonts, levelColor, levelTextColor, space } from '../../theme';
+import { colors, levelColor, levelTextColor, radius, space, themed } from '../../theme';
 
 
 // Re-fetching on every tab switch made the app feel slow; within this window the screen
@@ -63,6 +70,9 @@ export default function Today() {
   const router = useRouter();
   const athlete = storedAthlete();
   const athleteId = athlete?.id;
+  // Derived before the callbacks: the compiler treats a call on `athlete` after them as a possible mutation.
+  const hello = firstName(athlete?.name ?? '');
+  const avatar = initial(athlete?.name ?? '');
   const today = useToday();
   const [session, setSession] = useState<Session | null>(null);
   const [source, setSource] = useState<Source>('cache');
@@ -76,10 +86,14 @@ export default function Today() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(() => timeBudget(today));
-  const [showExercises, setShowExercises] = useState(false);
+  const [dayProgress, setDayProgress] = useState<Progress>(emptyProgress);
+  const [achievements, setAchievements] = useState(() => storedAchievements());
+  const [weekPlan, setWeekPlan] = useState<Set<string>>(new Set());
+  const [celebrate, setCelebrate] = useState<Medal[]>([]);
   const [showBudget, setShowBudget] = useState(false);
   const [readinessOpen, setReadinessOpen] = useState<boolean | null>(null); // null: follow the level
 
+  const scrollY = useState(() => new Animated.Value(0))[0];
   const fetchedAt = useRef(0);
   const run = useRef(0); // only the latest network load may write state
   const shown = useRef(false);
@@ -125,6 +139,7 @@ export default function Today() {
     }
     // Instant: what the device already has. The screen never waits on the network to appear.
     const [cached] = await Promise.all([cachedSession(today), refreshCounts()]);
+    setDayProgress(await loadProgress(today)); // ticks made in the session screen show on the plan at once
     if (cached && !shown.current) await showSession(cached, 'cache');
     if (!force && Date.now() - fetchedAt.current < STALE_MS) return;
     fetchedAt.current = Date.now();
@@ -148,6 +163,7 @@ export default function Today() {
           return ok;
         }),
         api.armorLoad(athleteId, today).catch(() => null),
+        api.progress(athleteId, 90).catch(() => null), // training calendar and records, for streak and medals
         api.weight(athleteId, 14).catch(() => null),
         refreshAthlete(athleteId),
         // Steps from the watch go up with the routine they tick; without health sync, just the routine.
@@ -166,7 +182,7 @@ export default function Today() {
         api.missed(athleteId, today).catch(() => null),
         loadProgress(today),
       ]);
-      const [, armorRes, weightRes, , routineRes] = await others;
+      const [, armorRes, report, weightRes, , routineRes] = await others;
       if (!live()) return;
       if (res) await showSession(res.session, res.source);
       else if (!cached) setError('Sem conexão e sem sessão em cache para hoje.');
@@ -178,6 +194,13 @@ export default function Today() {
         setRoutine(view);
         storeRoutine(view);
       }
+      const week = weekOf(today);
+      const weekSessions = await cachedRange(week);
+      setWeekPlan(new Set(week.filter((d) => weekSessions[d]?.is_training_day)));
+      const { store, newly } = updateAchievements(report, today, todayProgress.finishedAt != null,
+        routineRes?.streak ?? 0);
+      setAchievements(store);
+      if (newly.length) setCelebrate(newly);
       // Offer a make-up only before today's session has started, and not after "Seguir o calendário".
       const dismissed = Storage.getItemSync(DISMISSED_KEY) === today;
       setMissed(todayProgress.startedAt == null && !dismissed ? (missedRes?.missed ?? []) : []);
@@ -220,6 +243,7 @@ export default function Today() {
   const carried = !!armor && armor.total_kg_m > 0;
   const fitted = session ? fitToBudget(session, budget) : null;
   const plan = fitted?.session ?? session;
+  const cover = plan ? sessionCover(plan) : null;
   const exerciseCount = plan ? plan.blocks.reduce((n, b) => n + b.exercises.length, 0) : 0;
   const fullMinutes = session ? estimateMinutes(session) : 0;
   const budgets = BUDGET_OPTIONS.filter((m) => m < fullMinutes);
@@ -236,25 +260,32 @@ export default function Today() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <ScrollView
+      <Animated.ScrollView
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+        scrollEventThrottle={16}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} tintColor={colors.textMuted} />}
       >
-        <ScreenHeader
-          overline={`${PROGRAM_NAME[athlete.tier]} · ${athlete.name}`}
-          title="Hoje"
-          right={
-            // Sync runs on its own; only what needs the athlete's attention shows up here.
-            <View style={styles.status}>
-              <LiveHr />
-              {rejected > 0 && <Badge label={`${rejected} recusados`} color={colors.danger} />}
-              {source !== 'live' && !loading && <Badge label="Offline" color={colors.warning} />}
+        <Row style={styles.header}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <T variant="display" accessibilityRole="header">Olá, {hello}!</T>
+            <T variant="hint">{PROGRAM_NAME[athlete.tier]}{session?.is_training_day === false ? ' · dia de recuperar' : ' · bora treinar'}</T>
+          </View>
+          {/* Sync runs on its own; only what needs the athlete's attention shows up here. */}
+          <View style={styles.status}>
+            <LiveHr />
+            {rejected > 0 && <Badge label={`${rejected} recusados`} color={colors.danger} />}
+            {source !== 'live' && !loading && <Badge label="Offline" color={colors.warning} />}
+          </View>
+          <Tappable onPress={() => router.navigate('/settings')} accessibilityLabel="Abrir o perfil">
+            <View style={styles.avatar}>
+              <T variant="title" color={colors.accent}>{avatar}</T>
             </View>
-          }
-        />
+          </Tappable>
+        </Row>
 
         {error && <Panel accent={colors.warning}><T color={colors.warning}>{error}</T></Panel>}
 
@@ -279,68 +310,57 @@ export default function Today() {
         {session && (
           <>
             <FadeIn>
-              <Panel style={styles.hero}>
-                <Row style={{ justifyContent: 'space-between' }}>
-                  <T variant="tag">
-                    Dia {session.cycle_day} de {session.cycle_length}
-                    {session.meso_week != null && session.meso_length != null
-                      ? ` · semana ${session.meso_week} de ${session.meso_length}`
-                      : ''}
-                  </T>
-                  {session.deload && <Badge label="Deload" color={colors.warning} />}
+              <WeekStrip sessions={strip} current={session.cycle_day} structure={session.cycle_structure} today={today} />
+            </FadeIn>
+
+            <FadeIn delay={40}>
+              <PhotoCover source={cover} scrollY={scrollY} height={session.blocks.length > 0 ? 250 : 170}>
+                <Row style={{ gap: space.xs, flexWrap: 'wrap' }}>
+                  <View style={styles.coverTag}>
+                    <T variant="tag" color={ON_PHOTO}>
+                      {session.is_training_day ? 'Foco de hoje' : 'Recuperação'} · dia {session.cycle_day}/{session.cycle_length}
+                      {session.meso_week != null && session.meso_length != null
+                        ? ` · sem. ${session.meso_week}/${session.meso_length}`
+                        : ''}
+                    </T>
+                  </View>
+                  {session.deload && <View style={styles.coverTag}><T variant="tag" color={ON_PHOTO}>Deload</T></View>}
+                  {budget != null && <View style={styles.coverTag}><T variant="tag" color={ON_PHOTO}>Ajustado</T></View>}
                 </Row>
-                <T variant="display" style={styles.dayName} numberOfLines={2}>{session.day_name}</T>
+                <T variant="display" color={ON_PHOTO} style={styles.dayName} numberOfLines={2}>{session.day_name}</T>
                 {session.blocks.length > 0 ? (
                   <Row style={{ gap: space.lg }}>
                     <Meta icon="timer" text={`${plan?.target_duration_minutes ?? session.target_duration_minutes} min`} />
                     <Meta icon="dumbbell" text={`${exerciseCount} ${exerciseCount === 1 ? 'exercício' : 'exercícios'}`} />
-                    {budget != null && <Badge label="Ajustado" color={colors.accent} />}
                   </Row>
                 ) : (
-                  <T variant="label">Descanso completo hoje</T>
+                  <T color={ON_PHOTO_MUTED}>Descanso completo hoje. Sono, comida e passos.</T>
                 )}
-                <CycleStrip sessions={strip} current={session.cycle_day} structure={session.cycle_structure} />
                 {/* A full rest day has no session: nothing to list or start. */}
                 {session.blocks.length > 0 && (
-                  <>
-                    <Button
-                      icon="play"
-                      label={session.is_training_day ? 'Começar treino' : 'Começar recuperação'}
-                      onPress={() => router.push({ pathname: '/session/[day]', params: { day: today } })}
-                      style={{ marginTop: space.md }}
-                    />
-                    <SessionOutline session={plan ?? session} open={showExercises} />
-                    <Row style={{ gap: space.xl }}>
-                      <TextLink label={showExercises ? 'Ocultar exercícios' : 'Ver exercícios'}
-                        onPress={() => setShowExercises(!showExercises)} />
-                      {canBudget && (
-                        <TextLink
-                          label={budget != null ? `Tempo: ${budget} min` : 'Tenho menos tempo'}
-                          color={colors.textMuted}
-                          onPress={() => setShowBudget(!showBudget)}
-                        />
-                      )}
-                    </Row>
-                    {canBudget && showBudget && (
-                      <FadeIn style={{ gap: space.sm }}>
-                        <Row style={{ flexWrap: 'wrap' }}>
-                          <Chip label="Completo" selected={budget == null} onPress={() => pickBudget(null)} />
-                          {budgets.map((m) => (
-                            <Chip key={m} label={`${m} min`} selected={budget === m} onPress={() => pickBudget(m)}
-                              accessibilityLabel={`Tenho só ${m} minutos`} />
-                          ))}
-                        </Row>
-                        {fitted && fitted.changes.length > 0 && (
-                          <T variant="hint" color={fitted.fits ? colors.textMuted : colors.warning}>
-                            {fitted.fits ? 'Ajustado: ' : `Mesmo ajustado, cerca de ${fitted.minutes} min: `}
-                            {fitted.changes.join(' · ')}.
-                          </T>
-                        )}
-                      </FadeIn>
-                    )}
-                  </>
+                  <Button
+                    icon="play"
+                    tone={cover ? 'primary' : 'secondary'} // on the plain blue card, a blue button would vanish
+                    label={dayProgress.finishedAt ? 'Ver treino concluído'
+                      : dayProgress.startedAt ? 'Continuar treino'
+                      : session.is_training_day ? 'Começar treino' : 'Começar recuperação'}
+                    onPress={() => router.push({ pathname: '/session/[day]', params: { day: today } })}
+                    style={{ marginTop: space.sm }}
+                  />
                 )}
-              </Panel>
+              </PhotoCover>
+            </FadeIn>
+
+            <FadeIn delay={70}>
+              <WeekCard
+                today={today}
+                planned={weekPlan}
+                attendance={achievements.attendance}
+                finishedToday={dayProgress.finishedAt != null}
+                streak={statsOf(achievements, today, routine?.streak ?? 0).streak}
+                earned={Object.keys(achievements.earned).length}
+                onOpen={() => router.push('/achievements')}
+              />
             </FadeIn>
 
             <FadeIn delay={80}>
@@ -367,6 +387,40 @@ export default function Today() {
               <FadeIn>
                 <ReadinessPanel session={session} athleteId={athlete.id} day={today} onUpdated={refresh}
                   offline={source !== 'live'} />
+              </FadeIn>
+            )}
+
+            {session.blocks.length > 0 && plan && (
+              <FadeIn delay={60}>
+                <Section
+                  title="Plano de hoje"
+                  right={canBudget ? (
+                    <TextLink
+                      label={budget != null ? `Tempo: ${budget} min` : 'Tenho menos tempo'}
+                      onPress={() => setShowBudget(!showBudget)}
+                    />
+                  ) : undefined}
+                >
+                  {canBudget && showBudget && (
+                    <FadeIn style={{ gap: space.sm }}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
+                        <Chip label="Completo" selected={budget == null} onPress={() => pickBudget(null)} />
+                        {budgets.map((m) => (
+                          <Chip key={m} label={`${m} min`} selected={budget === m} onPress={() => pickBudget(m)}
+                            accessibilityLabel={`Tenho só ${m} minutos`} />
+                        ))}
+                      </ScrollView>
+                      {fitted && fitted.changes.length > 0 && (
+                        <T variant="hint" color={fitted.fits ? colors.textMuted : colors.warning}>
+                          {fitted.fits ? 'Ajustado: ' : `Mesmo ajustado, cerca de ${fitted.minutes} min: `}
+                          {fitted.changes.join(' · ')}.
+                        </T>
+                      )}
+                    </FadeIn>
+                  )}
+                  <PlanList session={plan} progress={dayProgress}
+                    onOpen={() => router.push({ pathname: '/session/[day]', params: { day: today } })} />
+                </Section>
               </FadeIn>
             )}
 
@@ -406,8 +460,63 @@ export default function Today() {
             </Section>
           </FadeIn>
         )}
-      </ScrollView>
+      </Animated.ScrollView>
+      {celebrate.length > 0 && (
+        <MedalUnlocked medals={celebrate} onClose={() => setCelebrate([])}
+          onOpenAll={() => {
+            setCelebrate([]);
+            router.push('/achievements');
+          }} />
+      )}
     </SafeAreaView>
+  );
+}
+
+const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
+const initial = (name: string) => name.trim().charAt(0).toUpperCase() || '?';
+
+/** The week at a glance: a ring of sessions done out of planned, the streak and the medals. */
+function WeekCard({ today, planned, attendance, finishedToday, streak, earned, onOpen }: {
+  today: string;
+  planned: Set<string>;
+  attendance: { day: string; planned: boolean; trained: boolean }[];
+  finishedToday: boolean;
+  streak: number;
+  earned: number;
+  onOpen: () => void;
+}) {
+  const week = weekOf(today);
+  const plannedDays = new Set([...planned, ...attendance.filter((d) => d.planned).map((d) => d.day)]);
+  const trained = new Set(attendance.filter((d) => d.trained).map((d) => d.day));
+  if (finishedToday) trained.add(today);
+  const { planned: goal, done } = weekGoal(week, plannedDays, trained);
+  const left = Math.max(0, goal - done);
+  const complete = goal > 0 && done >= goal;
+  return (
+    <Tappable onPress={onOpen} accessibilityLabel={`Semana: ${done} de ${goal} treinos. Sequência de ${streak}. ${earned} conquistas. Abrir conquistas`}>
+      <Panel style={styles.week}>
+        <ProgressRing value={goal ? done / goal : 0} size={76} stroke={8} color={complete ? colors.success : colors.accent}>
+          <T variant="title" style={{ fontSize: 18 }}>{done}/{goal}</T>
+        </ProgressRing>
+        <View style={{ flex: 1, gap: 4 }}>
+          <T variant="tag">Meta da semana</T>
+          <T variant="title">
+            {goal === 0 ? 'Semana sem treinos' : complete ? 'Semana cumprida!' : `Faltam ${left} ${left === 1 ? 'treino' : 'treinos'}`}
+          </T>
+          <Row style={{ gap: space.md }}>
+            <Row style={{ gap: 4 }}>
+              <Flame alive={streak > 0} size={18} />
+              <T variant="label" color={streak > 0 ? colors.text : colors.textMuted}>{streak} seguidos</T>
+            </Row>
+            <Row style={{ gap: 4 }}>
+              <Icon name="trophy" size={16} color={colors.accent} />
+              <T variant="label">{earned}/{MEDALS.length}</T>
+            </Row>
+          </Row>
+        </View>
+        <Icon name="chevron-right" size={18} color={colors.textFaint} />
+      </Panel>
+    </Tappable>
   );
 }
 
@@ -415,8 +524,8 @@ export default function Today() {
 function Meta({ icon, text }: { icon: IconName; text: string }) {
   return (
     <Row style={{ gap: 6 }}>
-      <Icon name={icon} size={16} color={colors.textMuted} />
-      <T variant="label">{text}</T>
+      <Icon name={icon} size={16} color={ON_PHOTO_MUTED} />
+      <T variant="label" color={ON_PHOTO_MUTED}>{text}</T>
     </Row>
   );
 }
@@ -450,64 +559,112 @@ function Tile({
   );
 }
 
-/** The session's blocks, one numbered line each; `open` lists their exercises too. */
-function SessionOutline({ session, open }: { session: Session; open: boolean }) {
+type Status = 'done' | 'doing' | 'next';
+
+function statusOf(block: Block, index: number, view: Session, p: Progress): { status: Status; text: string } {
+  const key = itemKey(block.order, index);
+  if (block.execution_style === 'straight_sets') {
+    const rx = block.exercises[index];
+    const n = Math.min(rx.sets, p.setsDone[key] ?? 0);
+    if (n >= rx.sets) return { status: 'done', text: 'Concluído' };
+    return n > 0 ? { status: 'doing', text: `${n}/${rx.sets} séries` } : { status: 'next', text: `${rx.sets} ${rx.sets === 1 ? 'série' : 'séries'}` };
+  }
+  if (block.execution_style === 'checklist') {
+    return p.checked[key] ? { status: 'done', text: 'Feito' } : { status: 'next', text: 'A fazer' };
+  }
+  if (blockComplete(view, block.order, p)) return { status: 'done', text: 'Concluído' };
+  return (p.amrapRounds[block.order] ?? 0) > 0
+    ? { status: 'doing', text: `${p.amrapRounds[block.order]} rodadas` }
+    : { status: 'next', text: 'Rodadas' };
+}
+
+/** The day's exercises as photo rows, grouped by block, each with its status. Tapping opens the session. */
+function PlanList({ session, progress, onOpen }: { session: Session; progress: Progress; onOpen: () => void }) {
+  const view = applySwaps(session, progress);
+  let n = 0;
   return (
-    <View style={{ gap: space.sm, marginTop: space.sm }}>
-      {session.blocks.map((b, i) => (
-        <View key={b.order} style={{ gap: 2 }}>
-          <Row>
-            <T variant="label" color={colors.textFaint} style={styles.blockNo}>{String(i + 1).padStart(2, '0')}</T>
-            <T style={{ flex: 1 }} numberOfLines={1}>{b.name}</T>
-            <T variant="label">{b.duration_minutes} min</T>
-          </Row>
-          {open && (
-            <FadeIn style={{ paddingLeft: 30, gap: 2 }}>
-              {b.exercises.map((e, j) => (
-                <T key={j} variant="hint" numberOfLines={1}>{e.name} · {rxSummary(e)}</T>
-              ))}
-            </FadeIn>
-          )}
+    <View style={{ gap: space.lg }}>
+      {view.blocks.map((b) => (
+        <View key={b.order} style={{ gap: space.sm }}>
+          <T variant="tag">{b.name} · {b.duration_minutes} min</T>
+          {b.exercises.map((e, i) => {
+            const { status, text } = statusOf(b, i, view, progress);
+            const no = ++n;
+            const tone = status === 'done' ? colors.success : status === 'doing' ? colors.accent : colors.textMuted;
+            return (
+              <Tappable key={i} onPress={onOpen} accessibilityLabel={`${no}. ${e.name}, ${rxSummary(e)}. ${text}`}>
+                <View style={styles.planRow}>
+                  <ExerciseThumb exerciseId={e.exercise_id} size={60} width={72} radius={radius.md} />
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Row style={{ gap: space.xs + 2 }}>
+                      <View style={[styles.planNo, status === 'done' && { backgroundColor: colors.success }]}>
+                        {status === 'done'
+                          ? <Icon name="check" size={12} color={colors.surface} strokeWidth={3} />
+                          : <T variant="tag" color={colors.onAccent} style={{ letterSpacing: 0 }}>{no}</T>}
+                      </View>
+                      <T numberOfLines={1} style={{ flex: 1, fontWeight: '600' }}
+                        color={status === 'done' ? colors.textMuted : colors.text}>{e.name}</T>
+                    </Row>
+                    <T variant="hint" numberOfLines={1}>{rxSummary(e)}</T>
+                    <Badge label={text} color={tone} />
+                  </View>
+                  <Icon name="chevron-right" size={18} color={colors.textFaint} />
+                </View>
+              </Tappable>
+            );
+          })}
         </View>
       ))}
     </View>
   );
 }
 
+const WEEKDAY = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
 /**
- * The cycle as a row of marks: filled for training, a ring for active recovery, a small dot for full
- * rest. Past days fade; today is the accent.
+ * The cycle as a row of day cards (weekday and date): today filled blue, past days faded. A dot
+ * under the date marks training, a ring active recovery, nothing a full rest day.
  */
-function CycleStrip({ sessions, current, structure }: { sessions: (Session | null)[]; current: number; structure: string }) {
-  // One summary for screen readers instead of a stop per mark.
+function WeekStrip({ sessions, current, structure, today }: {
+  sessions: (Session | null)[];
+  current: number;
+  structure: string;
+  today: string;
+}) {
+  // One summary for screen readers instead of a stop per day.
   const rest = sessions.flatMap((s, i) => (s && !s.is_training_day && s.blocks.length === 0 ? [i + 1] : []));
   const recovery = sessions.flatMap((s, i) => (s && !s.is_training_day && s.blocks.length > 0 ? [i + 1] : []));
   const summary =
     `${cycleStructureLabel(structure)}. Ciclo de ${sessions.length} dias, hoje é o dia ${current}.` +
     (recovery.length ? ` Recuperação ativa ${recovery.length === 1 ? 'no dia' : 'nos dias'} ${recovery.join(', ')}.` : '') +
     (rest.length ? ` Folga ${rest.length === 1 ? 'no dia' : 'nos dias'} ${rest.join(', ')}.` : '');
+  const first = addDays(today, -(current - 1));
   return (
-    <View style={styles.strip} accessible accessibilityLabel={summary}>
-      {sessions.map((s, i) => {
-        const day = i + 1;
-        const training = s?.is_training_day ?? true;
-        const recoveryDay = !training && !!s && s.blocks.length > 0;
-        const isCurrent = day === current;
-        const tone = isCurrent ? colors.accent : colors.textMuted;
-        return (
-          <View key={i} style={[styles.cell, day < current && { opacity: 0.35 }]}>
-            <View style={styles.markBox}>
-              <View
-                style={[
-                  training ? styles.markTraining : recoveryDay ? styles.markRecovery : styles.markRest,
-                  training || !recoveryDay ? { backgroundColor: tone } : { borderColor: tone },
-                ]}
-              />
+    <View accessible accessibilityLabel={summary}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+        {sessions.map((s, i) => {
+          const day = i + 1;
+          const date = addDays(first, i);
+          const [y, m, d] = date.split('-').map(Number);
+          const weekday = WEEKDAY[new Date(y, m - 1, d).getDay()];
+          const training = s?.is_training_day ?? true;
+          const recoveryDay = !training && !!s && s.blocks.length > 0;
+          const isCurrent = day === current;
+          const fg = isCurrent ? colors.onAccent : colors.text;
+          return (
+            <View key={i} style={[styles.dayCard, isCurrent && styles.dayCardOn, day < current && { opacity: 0.45 }]}>
+              <T variant="label" color={isCurrent ? colors.onAccent : colors.textMuted} style={{ fontSize: 12 }}>{weekday}</T>
+              <T variant="title" color={fg}>{d}</T>
+              <View style={[
+                styles.mark,
+                training ? { backgroundColor: isCurrent ? colors.onAccent : colors.accent }
+                  : recoveryDay ? { borderWidth: 1.5, borderColor: isCurrent ? colors.onAccent : colors.accent }
+                  : { opacity: 0 },
+              ]} />
             </View>
-            <T variant="label" style={{ fontSize: 11 }} color={isCurrent ? colors.text : colors.textFaint}>{day}</T>
-          </View>
-        );
-      })}
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }
@@ -749,18 +906,34 @@ function RoutineTile({ routine, onPress }: { routine: Routine; onPress: () => vo
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
-  status: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: space.xs, maxWidth: '55%' },
-  hero: { gap: space.sm, padding: space.xl },
-  dayName: { fontSize: 44, lineHeight: 46, marginTop: space.xs },
-  blockNo: { width: 22, fontFamily: fonts.mono, fontSize: 12 },
-  strip: { flexDirection: 'row', justifyContent: 'space-between', marginTop: space.md },
-  cell: { alignItems: 'center', gap: 6, flex: 1 },
-  markBox: { height: 14, justifyContent: 'center', alignItems: 'center' },
-  markTraining: { width: 14, height: 14, borderRadius: 7 },
-  markRecovery: { width: 14, height: 14, borderRadius: 7, borderWidth: 2 },
-  markRest: { width: 6, height: 6, borderRadius: 3 },
+  content: { padding: space.lg, gap: space.xl, paddingBottom: space.xxl },
+  header: { gap: space.md, paddingTop: space.sm, alignItems: 'center' },
+  status: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: space.xs, maxWidth: '40%' },
+  avatar: {
+    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.accent,
+  },
+  coverTag: {
+    backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: radius.pill, paddingHorizontal: space.sm + 2,
+    paddingVertical: 4, alignSelf: 'flex-start',
+  },
+  dayName: { fontSize: 34, lineHeight: 38 },
+  strip: { gap: space.sm, paddingVertical: 2 },
+  dayCard: {
+    width: 52, paddingVertical: space.sm + 2, borderRadius: radius.md, alignItems: 'center', gap: 2,
+    backgroundColor: colors.surface,
+  },
+  dayCardOn: { backgroundColor: colors.accent },
+  mark: { width: 6, height: 6, borderRadius: 3, marginTop: 3 },
+  planRow: {
+    flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.sm, paddingRight: space.md,
+    borderRadius: radius.lg, backgroundColor: colors.surface,
+  },
+  planNo: {
+    width: 20, height: 20, borderRadius: 10, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
+  },
   bullet: { width: 6, height: 6, borderRadius: 3, marginTop: 7 },
-});
+  week: { flexDirection: 'row', alignItems: 'center', gap: space.lg },
+}));

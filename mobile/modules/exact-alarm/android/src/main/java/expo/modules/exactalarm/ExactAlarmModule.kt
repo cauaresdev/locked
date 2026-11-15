@@ -24,6 +24,21 @@ class ExactAlarmModule : Module() {
       (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).canScheduleExactAlarms()
     }
 
+    // End-of-rest alarm in the alarm category (see RestAlarmReceiver).
+    Function("scheduleRestAlarm") { tag: String, delayMs: Double, channel: String, title: String, body: String ->
+      val context = appContext.reactContext ?: return@Function false
+      RestAlarmReceiver.schedule(context, tag, delayMs.toLong(), channel, title, body)
+      true
+    }
+
+    Function("cancelRestAlarm") { tag: String ->
+      appContext.reactContext?.let { RestAlarmReceiver.cancel(it, tag) }
+    }
+
+    Function("restAlarmShown") { tag: String ->
+      appContext.reactContext?.let { RestAlarmReceiver.shown(it, tag) } ?: false
+    }
+
     // Opens this app's "Alarms & reminders" switch.
     Function("openSettings") {
       val context = appContext.reactContext

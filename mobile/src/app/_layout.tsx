@@ -5,20 +5,28 @@ import * as Notifications from 'expo-notifications';
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
+import { useColorScheme, View } from 'react-native';
 
 import { clearToken, onUnauthorized } from '../auth';
 import { DevicesProvider } from '../ble/devices';
 import { ToastHost } from '../components/Toast';
 import { CuesProvider } from '../hooks/useCues';
 import { configureNotifications } from '../notifications';
-import { colors } from '../theme';
+import { applyScheme, colors, resolveScheme, subscribeTheme, themePreference } from '../theme';
 
 SplashScreen.preventAutoHideAsync();
 configureNotifications();
 
 export default function RootLayout() {
   const router = useRouter();
+  // The palette follows the phone (or the choice in Perfil). A change swaps the live palette and
+  // remounts the screens under a new key, so every style is rebuilt in the new colors.
+  const system = useColorScheme();
+  const pref = useSyncExternalStore(subscribeTheme, themePreference);
+  const scheme = resolveScheme(system);
+  applyScheme(scheme);
+  void pref; // read so a preference change re-renders the root
   const [loaded, error] = useFonts({ JetBrainsMono_400Regular, JetBrainsMono_700Bold, BarlowCondensed_700Bold });
 
   useEffect(() => {
@@ -57,7 +65,8 @@ export default function RootLayout() {
   return (
     <CuesProvider>
       <DevicesProvider>
-        <StatusBar style="light" />
+        <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+        <View key={scheme} style={{ flex: 1, backgroundColor: colors.bg }}>
         <Stack
           screenOptions={{
             headerShown: false,
@@ -66,8 +75,11 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="scan" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="achievements" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="session/[day]" options={{ animation: 'slide_from_right' }} />
         </Stack>
         <ToastHost />
+        </View>
       </DevicesProvider>
     </CuesProvider>
   );

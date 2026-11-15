@@ -5,6 +5,7 @@ export interface GuidedStep {
   seconds: number;
   cue: string;
   breathing?: boolean;
+  exerciseId?: string; // catalog id, for its photo
 }
 
 const BREATH = [
@@ -17,7 +18,7 @@ const BREATH_CYCLES = 4;
 
 export const EVENING_ROUTINE: GuidedStep[] = [
   { name: 'Troca de quadril 90/90', seconds: 120, cue: 'Sentado, joelhos a 90 graus. Gire de um lado para o outro, devagar.' },
-  { name: "World's Greatest Stretch", seconds: 120, cue: 'Afundo longo, cotovelo ao chão, depois gire o tronco e abra o braço. Troque de lado na metade.' },
+  { name: "World's Greatest Stretch", seconds: 120, cue: 'Afundo longo, cotovelo ao chão, depois gire o tronco e abra o braço. Troque de lado na metade.', exerciseId: 'worlds_greatest_stretch' },
   { name: 'Rotação torácica', seconds: 120, cue: 'Quatro apoios, mão na nuca. Gire o cotovelo para o teto. Troque de lado na metade.' },
   { name: 'Alongamento Brettzel', seconds: 120, cue: 'Deitado de lado, segure o joelho de cima e o pé de baixo. Respire fundo. Troque na metade.' },
   { name: 'Respiração 4-7-8', seconds: BREATH_CYCLE * BREATH_CYCLES, cue: 'Deitado, luz baixa. Siga o ritmo.', breathing: true },

@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 
 import { fresh, useDeviceControls, useLiveHr } from '../ble/devices';
 import { storedAthlete } from '../storage/db';
-import { colors } from '../theme';
+import { colors, themed } from '../theme';
 import { Badge } from './ui';
 
-const ZONE_COLOR = [colors.textMuted, colors.textMuted, colors.textMuted, colors.text, colors.warning, colors.danger];
+const ZONE_COLOR = themed(() => [colors.textMuted, colors.textMuted, colors.textMuted, colors.text, colors.warning, colors.danger]);
 
 export function zoneOf(bpm: number, hrMax: number | null): number | null {
   if (!hrMax) return null;

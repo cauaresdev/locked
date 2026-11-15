@@ -3,18 +3,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, space } from '../theme';
+import { colors, radius, space, themed } from '../theme';
 import { Icon, type IconName } from './Icon';
 import { ms, reduceMotion } from './motion';
 
 type Tone = 'error' | 'info' | 'success';
 type Message = { id: number; title: string; body?: string; tone: Tone };
 
-const TONE: Record<Tone, { color: string; icon: IconName }> = {
+const TONE = themed((): Record<Tone, { color: string; icon: IconName }> => ({
   error: { color: colors.danger, icon: 'alert' },
   info: { color: colors.accent, icon: 'info' },
   success: { color: colors.success, icon: 'check' },
-};
+}));
 const SHOW_MS = 4000;
 
 let show: ((m: Message) => void) | null = null;
@@ -79,7 +79,7 @@ export function ToastHost() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   wrap: { position: 'absolute', left: space.lg, right: space.lg, zIndex: 100, elevation: 12 },
   card: {
     flexDirection: 'row',
@@ -99,4 +99,4 @@ const styles = StyleSheet.create({
   bar: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
   title: { fontSize: 15, fontWeight: '600', color: colors.text },
   body: { fontSize: 13, lineHeight: 18, color: colors.textMuted },
-});
+}));

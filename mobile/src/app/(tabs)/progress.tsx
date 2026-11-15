@@ -12,7 +12,7 @@ import { shortDay } from '../../engine/chart';
 import { decimal, formatKgM, isoDay } from '../../engine/format';
 import { weeklyReview, type Goal } from '../../engine/review';
 import { cachedRoutine, storedAthlete, storedProgressReport, storeProgressReport } from '../../storage/db';
-import { colors, levelColor, radius, space } from '../../theme';
+import { colors, levelColor, radius, space, themed } from '../../theme';
 
 const RANGES = [30, 60, 90] as const;
 const STALE_MS = 60_000;
@@ -403,7 +403,7 @@ function AttendanceCard({ data }: { data: Progress }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
   calendar: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
@@ -415,4 +415,4 @@ const styles = StyleSheet.create({
   cellMissed: { borderWidth: 1.5, borderColor: colors.warning },
   cellRest: { backgroundColor: colors.surfaceHigh },
   cellMark: { color: colors.warning, fontWeight: '700', fontSize: 11, lineHeight: 14 },
-});
+}));

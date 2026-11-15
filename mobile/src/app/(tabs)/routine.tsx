@@ -46,7 +46,7 @@ import {
 } from '../../storage/db';
 import { syncSteps } from '../../health';
 import { flushRoutine, withPendingChecks } from '../../sync';
-import { colors, radius, space } from '../../theme';
+import { colors, radius, space, themed } from '../../theme';
 
 const WEEKDAY = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 const SLEEP_TARGETS = [7, 7.5, 8, 8.5, 9];
@@ -412,7 +412,7 @@ function WaterRow({ item, onSet }: { item: RoutineItem; onSet: (ml: number) => v
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.lg, gap: space.xl, paddingBottom: space.xxl },
   weekDay: { alignItems: 'center', gap: space.xs, minWidth: 32 },
@@ -441,4 +441,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-});
+}));

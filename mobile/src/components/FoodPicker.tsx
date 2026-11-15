@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../api/client';
 import type { Dairy, FoodEntryInput, Meal, Staple } from '../api/types';
 import { MEAL_LABEL, entryFromStaple } from '../engine/nutrition';
-import { colors, space } from '../theme';
+import { colors, space, themed } from '../theme';
 import { Icon } from './Icon';
 import { Badge, Button, Chip, Divider, Field, Panel, Row, T } from './ui';
 
@@ -140,7 +140,7 @@ export function FoodPicker({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: space.lg, gap: space.md },
   close: {
@@ -151,4 +151,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-});
+}));

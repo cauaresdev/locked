@@ -1,5 +1,5 @@
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { AccessibilityInfo, Alert, AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -27,8 +27,10 @@ import {
 } from '../../storage/db';
 import type { DeviceRole } from '../../storage/db';
 import { flushAll, prefetchSchedule } from '../../sync';
-import { colors, radius, space } from '../../theme';
+import { colors, radius, setThemePreference, space, subscribeTheme, themed, themePreference, type ThemePreference } from '../../theme';
 import { wipeDevice } from '../../wipe';
+
+const THEME_OPTIONS: [ThemePreference, string][] = [['system', 'Sistema'], ['light', 'Claro'], ['dark', 'Escuro']];
 
 const ROLE_LABEL: Record<DeviceRole, string> = {
   hr: 'Cinta cardíaca',
@@ -62,6 +64,7 @@ function Feedback({ msg, at }: { msg: Msg | null; at: Where }) {
 }
 
 export default function Settings() {
+  const theme = useSyncExternalStore(subscribeTheme, themePreference);
   const router = useRouter();
   const devices = useDeviceControls();
   const scan = useDeviceScan();
@@ -198,11 +201,11 @@ export default function Settings() {
   async function exportData() {
     try {
       const data = await api.exportData();
-      const file = new File(Paths.cache, `knightfall-dados-${isoDay()}.json`);
+      const file = new File(Paths.cache, `kinetic-dados-${isoDay()}.json`);
       file.write(JSON.stringify(data, null, 2));
       if (await Sharing.isAvailableAsync()) {
         try {
-          await Sharing.shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Seus dados do Knightfall' });
+          await Sharing.shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Seus dados do Kinetic' });
         } finally {
           // Health data must not linger in the cache once it has been handed over.
           try {
@@ -239,6 +242,17 @@ export default function Settings() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets>
         <ScreenHeader title="Perfil" overline={athlete.name} />
+
+        <Panel style={styles.panel}>
+          <T variant="title">Aparência</T>
+          <Row>
+            {THEME_OPTIONS.map(([v, label]) => (
+              <Chip key={v} label={label} selected={theme === v} onPress={() => setThemePreference(v)} style={{ flex: 1 }}
+                accessibilityLabel={`Tema ${label}`} />
+            ))}
+          </Row>
+          <T variant="hint">Claro com azul ou cinza-escuro com azul. “Sistema” acompanha o celular.</T>
+        </Panel>
 
         <Panel style={styles.panel}>
           <T variant="title">Dados pessoais</T>
@@ -458,7 +472,7 @@ function ExactAlarmPanel() {
       <T variant="title">Avisos na hora certa</T>
       <T variant="hint">
         Com a tela travada, o Android pode atrasar o fim do descanso e o despertador do Early Bird. Ative
-        “Alarmes e lembretes” para o Knightfall e eles tocam no segundo exato.
+        “Alarmes e lembretes” para o Kinetic e eles tocam no segundo exato.
       </T>
       <Button tone="secondary" label="Ativar alarmes e lembretes" onPress={openExactAlarmSettings} />
     </Panel>
@@ -566,11 +580,11 @@ function Glossary() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
   panel: { gap: space.md },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   program: { gap: space.xs, padding: space.md, borderRadius: radius.md, backgroundColor: colors.surfaceHigh },
   programOn: { borderWidth: 1, borderColor: colors.accent },
-});
+}));

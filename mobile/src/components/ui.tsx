@@ -13,8 +13,9 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import { colors, fonts, radius, space } from '../theme';
+import { cardShadow, colors, radius, scheme, space, themed } from '../theme';
 import { Icon, type IconName } from './Icon';
 import { ms, reduceMotion } from './motion';
 import { toast } from './Toast';
@@ -51,7 +52,10 @@ export function Tappable({
   const { scale, onPressIn, onPressOut } = usePressScale(0.97);
   return (
     <AnimatedPressable
-      onPress={onPress}
+      onPress={() => {
+        Haptics.selectionAsync().catch(() => {});
+        onPress();
+      }}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
       accessibilityRole="button"
@@ -198,7 +202,8 @@ export function Panel({
   raised?: boolean;
 }) {
   return (
-    <View style={[styles.panel, raised && { backgroundColor: colors.surfaceHigh }, accent ? tint(accent) : null, style]}>
+    <View style={[styles.panel, raised && { backgroundColor: colors.surfaceHigh }, accent ? tint(accent) : null,
+      (raised || accent) && styles.flat, style]}>
       {children}
     </View>
   );
@@ -242,6 +247,9 @@ export function Button({
   const off = disabled || busy;
   const press = () => {
     if (pending.current) return;
+    // A firm tap for the screen's main action, a light one for the rest.
+    if (tone === 'primary') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    else Haptics.selectionAsync().catch(() => {});
     const r = onPress();
     if (!(r instanceof Promise)) return;
     pending.current = true;
@@ -324,16 +332,32 @@ export function Chip({
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
 }) {
+  // A chip that turns on pops; every chip sinks under the finger.
+  const { scale, onPressIn, onPressOut } = usePressScale(0.94);
+  const pop = useState(() => new Animated.Value(1))[0];
+  const was = useRef(selected);
+  useEffect(() => {
+    if (selected && !was.current && !reduceMotion()) {
+      pop.setValue(0.88);
+      Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 14 }).start();
+    }
+    was.current = selected;
+  }, [selected, pop]);
   return (
-    <Pressable
-      onPress={onPress}
+    <AnimatedPressable
+      onPress={() => {
+        Haptics.selectionAsync().catch(() => {});
+        onPress();
+      }}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
       accessibilityRole={role}
       accessibilityState={{ checked: selected }}
       accessibilityLabel={accessibilityLabel}
-      style={[styles.chip, selected && styles.chipOn, style]}
+      style={[styles.chip, selected && styles.chipOn, { transform: [{ scale: Animated.multiply(scale, pop) }] }, style]}
     >
-      <Text style={[styles.chipText, { color: selected ? colors.bg : colors.text }]}>{label}</Text>
-    </Pressable>
+      <Text style={[styles.chipText, { color: selected ? colors.onAccent : colors.text }]}>{label}</Text>
+    </AnimatedPressable>
   );
 }
 
@@ -374,7 +398,7 @@ export function Checkbox({
       <Animated.View
         style={[styles.box, { borderColor }, checked && { backgroundColor: color, borderColor: color }, { transform: [{ scale: pop }] }]}
       >
-        {checked && <Icon name="check" size={14} color={colors.bg} strokeWidth={3} />}
+        {checked && <Icon name="check" size={14} color={colors.surface} strokeWidth={3} />}
       </Animated.View>
       {children}
     </Pressable>
@@ -447,10 +471,10 @@ export function useFillWidth(fraction: number) {
 }
 
 /** Thin progress track, 0–1. */
-export function ProgressBar({ value, color = colors.accent }: { value: number; color?: string }) {
+export function ProgressBar({ value, color = colors.accent, trackColor }: { value: number; color?: string; trackColor?: string }) {
   const width = useFillWidth(value);
   return (
-    <View style={styles.track}>
+    <View style={[styles.track, trackColor ? { backgroundColor: trackColor } : null]}>
       <Animated.View style={[styles.trackFill, { width, backgroundColor: color }]} />
     </View>
   );
@@ -493,27 +517,42 @@ export function PopIn({ children, style }: { children: ReactNode; style?: StyleP
   return <Animated.View style={[{ transform: [{ scale }] }, style]}>{children}</Animated.View>;
 }
 
-/** Placeholder block that pulses while content loads. */
+/** Placeholder block with a sheen sweeping across it while content loads. */
 export function Skeleton({ height = 16, width = '100%', style }: { height?: number; width?: ViewStyle['width']; style?: StyleProp<ViewStyle> }) {
   const t = useState(() => new Animated.Value(0))[0];
+  const [w, setW] = useState(0);
   useEffect(() => {
-    if (reduceMotion()) return;
+    if (reduceMotion() || !w) return;
     const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(t, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(t, { toValue: 0, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ]),
+      Animated.timing(t, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
     );
     loop.start();
     return () => loop.stop();
-  }, [t]);
-  const opacity = t.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] });
+  }, [t, w]);
+  const translateX = t.interpolate({ inputRange: [0, 1], outputRange: [-w, w] });
+  const sheen = scheme() === 'light' ? 0.65 : 0.07;
   return (
-    <Animated.View
+    <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[{ height, width, borderRadius: radius.sm, backgroundColor: colors.surfaceHigh, opacity }, style]}
-    />
+      onLayout={(e) => setW(e.nativeEvent.layout.width)}
+      style={[{ height, width, borderRadius: radius.sm, backgroundColor: colors.surfaceHigh, overflow: 'hidden' }, style]}
+    >
+      {w > 0 && (
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ translateX }] }]}>
+          <Svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 1 1">
+            <Defs>
+              <LinearGradient id="sheen" x1="0" y1="0" x2="1" y2="0">
+                <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0} />
+                <Stop offset="0.5" stopColor="#FFFFFF" stopOpacity={sheen} />
+                <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0} />
+              </LinearGradient>
+            </Defs>
+            <Rect x="0" y="0" width="1" height="1" fill="url(#sheen)" />
+          </Svg>
+        </Animated.View>
+      )}
+    </View>
   );
 }
 
@@ -538,38 +577,40 @@ export function Row({ children, style }: { children: ReactNode; style?: StylePro
   return <View style={[{ flexDirection: 'row', alignItems: 'center', gap: space.sm }, style]}>{children}</View>;
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   // The display face carries its own weight: a fontWeight on a custom family breaks it on Android.
-  display: { fontFamily: fonts.display, fontSize: 36, color: colors.text, letterSpacing: 0.2, lineHeight: 40 },
-  title: { fontSize: 18, fontWeight: '600', color: colors.text, lineHeight: 24 },
+  display: { fontSize: 30, fontWeight: '700', color: colors.text, letterSpacing: -0.4, lineHeight: 36 },
+  title: { fontSize: 17, fontWeight: '600', color: colors.text, lineHeight: 23 },
   body: { fontSize: 15, color: colors.text, lineHeight: 21 },
   label: { fontSize: 13, fontWeight: '500', color: colors.textMuted, lineHeight: 18 },
   hint: { fontSize: 13, color: colors.textMuted, lineHeight: 19 },
   tag: { fontSize: 11, fontWeight: '600', color: colors.textMuted, letterSpacing: 0.6, textTransform: 'uppercase' },
-  metric: { fontFamily: fonts.monoBold, fontSize: 28, color: colors.text, fontVariant: ['tabular-nums'] },
-  hero: { fontFamily: fonts.monoBold, fontSize: 64, color: colors.text, fontVariant: ['tabular-nums'], lineHeight: 72 },
+  metric: { fontSize: 28, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
+  hero: { fontSize: 64, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'], lineHeight: 72, letterSpacing: -1 },
   header: { flexDirection: 'row', alignItems: 'flex-end', gap: space.md, paddingTop: space.sm, paddingBottom: space.xs },
   panel: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: space.lg,
     gap: space.sm,
+    ...cardShadow,
   },
   button: {
     flexDirection: 'row',
     gap: space.sm,
     backgroundColor: colors.accent,
-    borderRadius: 14,
+    borderRadius: radius.md,
     paddingVertical: space.md + 2,
     paddingHorizontal: space.lg,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 50,
   },
+  flat: { shadowOpacity: 0, elevation: 0 }, // tinted or nested cards: a shadow behind a translucent fill smears
   buttonSecondary: { backgroundColor: colors.surfaceHigh },
   buttonDisabled: { opacity: 0.4 },
   buttonLabel: { fontSize: 16, fontWeight: '600' },
-  badge: { borderRadius: radius.pill, paddingHorizontal: space.sm + 2, paddingVertical: 3, alignSelf: 'flex-start' },
+  badge: { borderRadius: radius.pill, paddingHorizontal: space.sm + 2, paddingVertical: 4, alignSelf: 'flex-start' },
   badgeText: { fontSize: 12, fontWeight: '600' },
   input: {
     fontSize: 17,
@@ -591,7 +632,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  chipOn: { backgroundColor: colors.text },
+  chipOn: { backgroundColor: colors.accent },
   chipText: { fontSize: 14, fontWeight: '500' },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 44 },
   box: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
@@ -606,4 +647,4 @@ const styles = StyleSheet.create({
   track: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceHigh, overflow: 'hidden' },
   trackFill: { height: 6, borderRadius: 3 },
   dot: { width: 10, height: 10, borderRadius: 5 },
-});
+}));

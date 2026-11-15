@@ -9,7 +9,7 @@ import { disconnectAllDevices } from '../ble/devices';
 import { Button, Field, T } from '../components/ui';
 import { localOwner, storeAthlete } from '../storage/db';
 import { wipeDevice } from '../wipe';
-import { colors, space } from '../theme';
+import { colors, space, themed } from '../theme';
 
 export default function Login() {
   const router = useRouter();
@@ -57,7 +57,7 @@ export default function Login() {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={{ gap: space.sm, marginBottom: space.lg }}>
             <Image source={require('../../assets/logo.png')} style={styles.logo} accessibilityIgnoresInvertColors />
-            <T variant="display" style={{ fontSize: 52, lineHeight: 54, letterSpacing: 1 }}>KNIGHTFALL</T>
+            <T variant="display" style={{ fontSize: 52, lineHeight: 54, letterSpacing: 1 }}>KINETIC</T>
             <T variant="label">{mode === 'login' ? 'Entre na sua conta' : 'Crie sua conta'}</T>
           </View>
           <Field label="E-mail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"
@@ -82,8 +82,8 @@ export default function Login() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.xl, gap: space.lg, paddingTop: space.xxl * 2 },
   logo: { width: 56, height: 56, marginBottom: space.sm },
-});
+}));

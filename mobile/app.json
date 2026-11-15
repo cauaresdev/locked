@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Knightfall",
+    "name": "Kinetic",
     "slug": "knightfall",
     "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "dev.knightfall.app",
@@ -49,7 +49,12 @@
           "backgroundColor": "#0B0B0D"
         }
       ],
-      "expo-sqlite",
+      [
+        "expo-sqlite",
+        {
+          "enableFTS": true
+        }
+      ],
       [
         "expo-audio",
         {
@@ -74,7 +79,8 @@
           "color": "#D97706",
           "sounds": [
             "./assets/sounds/alarm.wav",
-            "./assets/sounds/rest.wav"
+            "./assets/sounds/rest.wav",
+            "./assets/sounds/rest_alarm.wav"
           ]
         }
       ],

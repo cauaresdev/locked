@@ -8,7 +8,7 @@ import { PHASE_LABEL } from '../engine/tempo';
 import { useCountdown } from '../hooks/useCountdown';
 import { useCues } from '../hooks/useCues';
 import { useMetronome } from '../hooks/useMetronome';
-import { colors, fonts, radius, space } from '../theme';
+import { colors, radius, space, themed } from '../theme';
 import { Button, Field, Panel, Row, T } from './ui';
 
 export interface SetResult {
@@ -232,7 +232,7 @@ function WorkTimer({ seconds }: { seconds: number }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   center: { alignItems: 'center', gap: space.sm, paddingVertical: space.sm },
   rpeRow: { flexDirection: 'row', gap: space.xs },
   rpeKey: { flex: 1, borderRadius: radius.md, borderWidth: 1.5, borderColor: 'transparent',
@@ -241,5 +241,5 @@ const styles = StyleSheet.create({
   rpeCaption: { fontSize: 10, color: colors.textMuted },
   chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   chipTarget: { borderColor: colors.textMuted, borderStyle: 'dashed' },
-  chipText: { fontFamily: fonts.monoBold, fontSize: 15, color: colors.text, fontVariant: ['tabular-nums'] },
-});
+  chipText: { fontSize: 16, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
+}));
