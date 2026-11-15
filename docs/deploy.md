@@ -59,3 +59,15 @@ deploy. Cada push na main com mudanças em `backend/` faz um deploy novo sozinho
 - **Alerta de queda:** monitor gratuito do [UptimeRobot](https://uptimerobot.com) no `/health` a cada 5 minutos.
   No Render, ele também mantém o servidor acordado.
 - **Senha esquecida:** o app não tem "esqueci a senha"; a redefinição é feita por mim no servidor.
+
+## Relatório de erros (Sentry, opcional)
+
+Sem configuração, nada é enviado. Com uma conta gratuita no [Sentry](https://sentry.io), crie dois projetos
+(FastAPI e React Native) e:
+
+- **Servidor:** defina `SENTRY_DSN` (Render: variável de ambiente; Oracle: `deploy/oracle/.env`).
+- **App:** defina `EXPO_PUBLIC_SENTRY_DSN` no build. Para ver os stack traces legíveis, defina também
+  `SENTRY_ORG` e `SENTRY_PROJECT`, e `SENTRY_AUTH_TOKEN` como segredo do EAS: o build envia os source maps.
+
+Nos dois lados, corpo de requisição, query string, cabeçalhos, logs do console e identidade do usuário são
+removidos antes do envio (`backend/knightfall/observability.py`, `mobile/src/crash.ts`): eles podem conter dados de saúde.
