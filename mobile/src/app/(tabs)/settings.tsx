@@ -408,6 +408,7 @@ export default function Settings() {
         </Panel>
 
         <Glossary />
+        <Button tone="secondary" icon="info" label="Créditos e licenças" onPress={() => router.push('/credits')} />
       </ScrollView>
     </SafeAreaView>
   );

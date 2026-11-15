@@ -2,3 +2,6 @@ __pycache__/
 .DS_Store
 deploy/oracle/.env
 deploy/oracle/backups/
+
+# Visual references from other designers: kept locally, never published
+referencias-visuais/

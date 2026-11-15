@@ -19,5 +19,7 @@ services:
         value: "off"  # Neon's TimescaleDB build lacks compression; a plain table is enough
       - key: FORWARDED_ALLOW_IPS
         value: "*"  # only Render's proxy reaches the container
+      - key: SENTRY_DSN
+        sync: false  # optional: the Sentry project's DSN; unset sends no error reports
       - key: PORT
         value: "8000"

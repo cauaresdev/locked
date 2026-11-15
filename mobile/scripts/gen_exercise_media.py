@@ -1,5 +1,6 @@
-"""Exercise demo photos for the app, from free-exercise-db (public domain, The Unlicense), plus a few
-single images from wger.de (CC BY-SA 4.0, credited on the demo screen) for exercises it lacks.
+"""Exercise demo photos for the app, from free-exercise-db (public domain, The Unlicense), plus single
+images from wger.de (CC BY-SA 4.0) and Flickr (CC BY 2.0) for exercises it lacks, credited on the
+demo screen as their licenses require.
 
 Each exercise of the backend catalog maps to one dataset entry with two photos (start
 and end position). The photos are downloaded, resized to 600 px and saved as WebP in
@@ -18,12 +19,13 @@ import re
 import sys
 import urllib.request
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
 SOURCE = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/{}/{}.jpg"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS = os.path.join(ROOT, "assets", "exercises")
 MODULE = os.path.join(ROOT, "src", "engine", "exerciseMedia.ts")
+CATALOG = os.path.join(os.path.dirname(ROOT), "backend", "knightfall", "catalog.py")
 WIDTH = 600
 QUALITY = 62
 
@@ -95,21 +97,50 @@ MAPPING = {
 }
 
 
-# Exercises free-exercise-db lacks: one wger image each (both positions drawn in it), padded to the
-# photos' 3:2 on white. our id -> (file slug, image URL, author or None, wger exercise page)
-WGER = {
+# Exercises free-exercise-db lacks: one image each, padded to the photos' 3:2 on white.
+# our id -> (file slug, image URL, credit shown under it, source page)
+SINGLE = {
     "wall_ball": ("wger_wall_ball", "https://wger.de/media/exercise-images/1100/ab203e0c-8220-4537-987c-871eb259d687.jpg",
-                  "philip", "https://wger.de/exercise/1100"),
+                  "Imagem: philip / wger.de · CC BY-SA 4.0", "https://wger.de/exercise/1100"),
     "lateral_squat": ("wger_lateral_squat",
                       "https://wger.de/media/exercise-images/1604/7695428e-bfed-4021-b987-498d93153995.png",
-                      "RiccaBaro", "https://wger.de/exercise/1604"),
+                      "Imagem: RiccaBaro / wger.de · CC BY-SA 4.0", "https://wger.de/exercise/1604"),
     "pike_push_up": ("wger_pike_push_up", "https://wger.de/media/exercise-images/454/447f3c17-405f-46e0-b138-65c2a8caaab0.png",
-                     None, "https://wger.de/exercise/454"),
+                     "Imagem: wger.de · CC BY-SA 4.0", "https://wger.de/exercise/454"),
+    "spiderman_lunge_stretch": ("wger_runners_lunge",
+                                "https://wger.de/media/exercise-images/1874/66fca8a5-41e8-42d1-8776-5e46a4902650.png",
+                                "Imagem: Davidgj32 / wger.de · CC BY-SA 4.0", "https://wger.de/exercise/1874"),
+    "half_kneeling_landmine_press": ("flickr_kneeling_landmine_press",
+                                     "https://live.staticflickr.com/856/42031003220_59cc762cc8_b.jpg",
+                                     "Foto: personaltrainertoronto / Flickr · CC BY 2.0",
+                                     "https://www.flickr.com/photos/121183998@N08/42031003220"),
+    "kb_bottoms_up_press": ("flickr_bottoms_up_press", "https://live.staticflickr.com/1873/29805582077_549a40f8fc_b.jpg",
+                            "Foto: personaltrainertoronto / Flickr · CC BY 2.0",
+                            "https://www.flickr.com/photos/121183998@N08/29805582077"),
 }
+
 
 # Dataset entries whose first photo is the setup, not the exercise (the plank starts kneeling):
 # their held position goes first, so thumbnails and covers show the exercise itself.
 HELD_FIRST = {"Plank"}
+
+LICENSES = {
+    "CC BY-SA 4.0": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "CC BY 2.0": "https://creativecommons.org/licenses/by/2.0/",
+}
+
+
+def license_url(credit: str) -> str:
+    for name, url in LICENSES.items():
+        if credit.endswith(name):
+            return url
+    raise SystemExit(f"unknown license in credit: {credit!r}")
+
+
+def exercise_names() -> dict[str, str]:
+    """Our id -> Portuguese name, read from the backend catalog (shown on the credits screen)."""
+    with open(CATALOG, encoding="utf-8") as f:
+        return dict(re.findall(r'Exercise\(\s*"([a-z0-9_]+)",\s*"([^"]+)"', f.read()))
 
 
 def slug(s: str) -> str:
@@ -128,19 +159,27 @@ def main() -> None:
                 im.thumbnail((WIDTH, WIDTH))
                 im.save(dst, "WEBP", quality=QUALITY, method=6)
             total += os.path.getsize(dst)
-    for name, url, _, _ in WGER.values():
+    for name, url, _, _ in SINGLE.values():
         dst = os.path.join(ASSETS, f"{name}.webp")
         if not os.path.exists(dst):
             tmp, _ = urllib.request.urlretrieve(url)
             im = Image.open(tmp).convert("RGBA")
-            im.thumbnail((WIDTH, WIDTH * 2 // 3))
-            canvas = Image.new("RGBA", (WIDTH, WIDTH * 2 // 3), "white")
+            size = (WIDTH, WIDTH * 2 // 3)
+            if url.startswith("https://wger.de"):
+                canvas = Image.new("RGBA", size, "white")  # drawings on white: plain white margins
+            else:
+                # Photos: margins filled with the photo itself, enlarged and blurred.
+                scale = max(size[0] / im.width, size[1] / im.height)
+                bg = im.resize((round(im.width * scale), round(im.height * scale)))
+                left, top = (bg.width - size[0]) // 2, (bg.height - size[1]) // 2
+                canvas = bg.crop((left, top, left + size[0], top + size[1])).filter(ImageFilter.GaussianBlur(18))
+            im.thumbnail(size)
             canvas.alpha_composite(im, ((canvas.width - im.width) // 2, (canvas.height - im.height) // 2))
             canvas.convert("RGB").save(dst, "WEBP", quality=QUALITY, method=6)
         total += os.path.getsize(dst)
     lines = [
         "// Generated by scripts/gen_exercise_media.py from free-exercise-db (public domain photos) and",
-        "// wger.de (CC BY-SA 4.0, see EXERCISE_CREDITS). Regenerate instead of editing by hand.",
+        "// wger.de and Flickr (see EXERCISE_CREDITS). Regenerate instead of editing by hand.",
         "",
         "import type { ImageSourcePropType } from 'react-native';",
         "",
@@ -152,18 +191,25 @@ def main() -> None:
         a, b = (1, 0) if src in HELD_FIRST else (0, 1)
         lines.append(f"  {ours}: [require('../../assets/exercises/{s}_{a}.webp'), "
                      f"require('../../assets/exercises/{s}_{b}.webp')],")
-    for ours, (name, _, _, _) in sorted(WGER.items()):
+    for ours, (name, _, _, _) in sorted(SINGLE.items()):
         lines.append(f"  {ours}: [require('../../assets/exercises/{name}.webp')],")
     lines.append("};")
     lines += ["", "/** Attribution shown under images that are not public domain. */",
               "export const EXERCISE_CREDITS: Record<string, string> = {"]
-    for ours, (_, _, author, _) in sorted(WGER.items()):
-        by = f"{author} / wger.de" if author else "wger.de"
-        lines.append(f"  {ours}: 'Imagem: {by} · CC BY-SA 4.0',")
+    for ours, (_, _, credit, _) in sorted(SINGLE.items()):
+        lines.append(f"  {ours}: '{credit}',")
     lines.append("};")
+    names = exercise_names()
+    lines += ["", "/** Every non-public-domain image, for the credits screen: original page and license. */",
+              "export const EXERCISE_SOURCES: { exercise: string; credit: string; source: string; license: string }[] = ["]
+    for ours, (_, _, credit, page) in sorted(SINGLE.items(), key=lambda kv: names.get(kv[0], kv[0])):
+        name = names.get(ours, ours).replace("'", "\\'")
+        lines.append(f"  {{ exercise: '{name}', credit: '{credit}',")
+        lines.append(f"    source: '{page}', license: '{license_url(credit)}' }},")
+    lines.append("];")
     with open(MODULE, "w") as f:
         f.write("\n".join(lines) + "\n")
-    print(f"{len(MAPPING) + len(WGER)} exercises, {len(set(MAPPING.values()))} photo pairs, {total / 1e6:.1f} MB", file=sys.stderr)
+    print(f"{len(MAPPING) + len(SINGLE)} exercises, {len(set(MAPPING.values()))} photo pairs, {total / 1e6:.1f} MB", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo-google-fonts/share-tech-mono": "^0.4.1",
     "@kingstinct/react-native-healthkit": "^16.2.0",
+    "@sentry/react-native": "~7.11.0",
     "eslint-config-expo": "~57.0.2",
     "expo": "~57.0.33",
     "expo-asset": "~57.0.20",
