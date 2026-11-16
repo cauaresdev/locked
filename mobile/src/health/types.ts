@@ -12,4 +12,5 @@ export interface HealthProvider {
   available(): Promise<boolean>;
   requestAccess(): Promise<boolean>;
   readNight(day: string): Promise<NightReading | null>;
+  readSteps(day: string): Promise<number | null>; // steps on that local day so far, all sources deduplicated
 }

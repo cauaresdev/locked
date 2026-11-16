@@ -5,7 +5,7 @@ import type { ColorValue } from 'react-native';
 import { getToken } from '../../auth';
 import { useDeviceControls } from '../../ble/devices';
 import { Icon, type IconName } from '../../components/Icon';
-import { colors } from '../../theme';
+import { TabBar } from '../../components/TabBar';
 
 const icon = (name: IconName) =>
   function TabIcon({ color }: { color: ColorValue }) {
@@ -18,14 +18,11 @@ export default function TabLayout() {
   if (!getToken()) return <Redirect href="/login" />;
   return (
     <Tabs
+      tabBar={(props) => <TabBar {...props} />}
       screenOptions={{
         headerShown: false,
         // Hidden tabs stay mounted; frozen, they skip the renders that live BLE readings would cause.
         freezeOnBlur: true,
-        tabBarActiveTintColor: colors.text,
-        tabBarInactiveTintColor: colors.textFaint,
-        tabBarStyle: { backgroundColor: colors.bg, borderTopWidth: 0, elevation: 0 },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
       }}
     >
       <Tabs.Screen name="today" options={{ title: 'Hoje', tabBarIcon: icon('home') }} />

@@ -20,8 +20,10 @@ export function useCountdown(totalSeconds: number, onDone?: (lateMs: number) => 
   useEffect(() => {
     if (!running) return;
     const id = setInterval(() => {
+      // Already finished: the interval lives until `running=false` commits, and must not fire onDone twice.
+      if (endAt.current == null) return;
       const now = Date.now();
-      const end = endAt.current ?? 0;
+      const end = endAt.current;
       const left = Math.max(0, end - now);
       setRemaining(Math.ceil(left / 1000));
       if (left === 0) {

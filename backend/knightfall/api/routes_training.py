@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
@@ -10,9 +11,10 @@ from sqlalchemy import delete, select
 
 from .. import armor, routine
 from ..catalog import EXERCISES
-from ..db import Athlete, ReadinessEntry, SetLog, athlete_records, insert_new
+from ..db import Athlete, ExercisePreference, ReadinessEntry, SetLog, athlete_records, insert_new
 from ..domain import Prescription, ReadinessSummary, Session, Tier
 from ..generator import alternatives
+from ..records import SetRecord
 from ..strength import current_e1rm, e1rm_history, system_extra
 from ..tiers import TIERS
 from .deps import AthleteDep, CurrentUser, Db
@@ -24,6 +26,8 @@ from .schemas import (
     AthleteUpdate,
     CycleShiftIn,
     Day,
+    ExercisePreferenceIn,
+    ExercisePreferenceOut,
     MissedOut,
     ReadinessIn,
     SetLogIn,
@@ -33,9 +37,11 @@ from .schemas import (
 )
 from .services import (
     athlete_out,
+    forget_replacements,
     local_today,
     normalize_equipment,
     plan_context,
+    plan_shape,
     position,
     readiness_for,
     reject_foreign_ids,
@@ -46,10 +52,12 @@ from .services import (
 router = APIRouter(tags=["training"])
 
 MAX_SCHEDULE_DAYS = 31
+MAX_EXERCISE_PREFERENCES = 60
 PROFILE_FIELDS = ("body_fat_pct", "height_cm", "birth_year", "sex", "hr_max_override", "timezone",
-                  "early_bird_enabled", "wake_time", "sleep_target_hours", "nutrition_goal")
+                  "early_bird_enabled", "wake_time", "sleep_target_hours", "steps_target", "training_time",
+                  "nutrition_goal")
 NOT_NULL_FIELDS = {"name", "bodyweight_kg", "timezone", "early_bird_enabled", "wake_time", "sleep_target_hours",
-                   "nutrition_goal"}
+                   "steps_target", "nutrition_goal"}
 
 
 def _equipment(value: list | None) -> str | None:
@@ -136,7 +144,7 @@ def get_session(day: Day, a: AthleteDep, s: Db) -> Session:
 @router.get("/athletes/{athlete_id}/sessions/{day}/alternatives", response_model=list[Prescription])
 def get_alternatives(
     day: Day, a: AthleteDep, s: Db,
-    block: Annotated[int, Query(ge=1, le=3)], index: Annotated[int, Query(ge=0, le=20)],
+    block: Annotated[int, Query(ge=1, le=10)], index: Annotated[int, Query(ge=0, le=20)],
 ) -> list[Prescription]:
     """Other exercises for the same slot (same movement pattern, available equipment)."""
     try:
@@ -144,6 +152,67 @@ def get_alternatives(
                             **plan_context(s, a, day, with_readiness=True))
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
+
+
+def _preference_out(p: ExercisePreference) -> ExercisePreferenceOut:
+    return ExercisePreferenceOut(exercise_id=p.exercise_id, name=EXERCISES[p.exercise_id].name,
+                                 replacement_id=p.replacement_id, replacement_name=EXERCISES[p.replacement_id].name)
+
+
+@router.get("/athletes/{athlete_id}/exercise-preferences", response_model=list[ExercisePreferenceOut])
+def list_exercise_preferences(a: AthleteDep, s: Db) -> list[ExercisePreferenceOut]:
+    """Standing swaps: wherever the plan puts an exercise, the athlete does its replacement."""
+    rows = s.scalars(select(ExercisePreference).where(ExercisePreference.athlete_id == a.id)
+                     .order_by(ExercisePreference.created_at))
+    return [_preference_out(p) for p in rows if p.exercise_id in EXERCISES and p.replacement_id in EXERCISES]
+
+
+@router.put("/athletes/{athlete_id}/exercise-preferences/{exercise_id}", response_model=ExercisePreferenceOut)
+def put_exercise_preference(
+    exercise_id: str, body: ExercisePreferenceIn, a: AthleteDep, s: Db
+) -> ExercisePreferenceOut:
+    """Always do `replacement_id` where the plan puts `exercise_id` (when it fits that slot)."""
+    if exercise_id not in EXERCISES:
+        raise HTTPException(422, f"unknown exercise_id {exercise_id!r}")
+    if body.replacement_id == exercise_id:
+        raise HTTPException(422, "Um exercício não substitui ele mesmo.")
+    pref = s.get(ExercisePreference, (a.id, exercise_id))
+    if pref is None:
+        count = len(s.scalars(select(ExercisePreference.exercise_id)
+                              .where(ExercisePreference.athlete_id == a.id)).all())
+        if count >= MAX_EXERCISE_PREFERENCES:
+            raise HTTPException(422, f"Limite de {MAX_EXERCISE_PREFERENCES} trocas fixas.")
+        pref = ExercisePreference(athlete_id=a.id, exercise_id=exercise_id, replacement_id=body.replacement_id)
+        s.add(pref)
+    # Only one link is applied when generating: resolve chains so every swap points at its final exercise.
+    current = {p.exercise_id: p.replacement_id for p in s.scalars(
+        select(ExercisePreference).where(ExercisePreference.athlete_id == a.id)) if p.exercise_id != exercise_id}
+    target, seen = body.replacement_id, {exercise_id}
+    while target in current and target not in seen:  # A -> B while B -> C: A goes straight to C
+        seen.add(target)
+        target = current[target]
+    if target == exercise_id:  # B -> A undone by A -> B: the swap cancels out
+        raise HTTPException(422, "Essa troca desfaz outra troca fixa: remova a anterior em Perfil.")
+    pref.replacement_id = target
+    # Older swaps that ended at this exercise (X -> A) now end where A goes.
+    for other in s.scalars(select(ExercisePreference).where(ExercisePreference.athlete_id == a.id,
+                                                             ExercisePreference.replacement_id == exercise_id)):
+        other.replacement_id = target
+    s.flush()
+    # A swap that now points at itself is no swap at all.
+    s.execute(delete(ExercisePreference).where(ExercisePreference.athlete_id == a.id,
+                                               ExercisePreference.exercise_id == ExercisePreference.replacement_id))
+    forget_replacements(s, a)
+    s.commit()
+    return _preference_out(pref)
+
+
+@router.delete("/athletes/{athlete_id}/exercise-preferences/{exercise_id}", status_code=204)
+def delete_exercise_preference(exercise_id: str, a: AthleteDep, s: Db) -> None:
+    s.execute(delete(ExercisePreference).where(ExercisePreference.athlete_id == a.id,
+                                               ExercisePreference.exercise_id == exercise_id))
+    forget_replacements(s, a)
+    s.commit()
 
 
 @router.get("/athletes/{athlete_id}/schedule", response_model=list[Session])
@@ -203,7 +272,7 @@ def _missed_days(s: Db, a: Athlete, day: date) -> list[date]:
     missed: list[date] = []
     d = day - timedelta(days=1)
     while d >= a.cycle_start and len(missed) < cycle_len - 1:
-        plan = session_for(s, a, d, with_readiness=False, records=[])
+        plan = plan_shape(s, a, d)
         if not plan.is_training_day or d in trained:
             break
         missed.append(d)
@@ -254,10 +323,15 @@ def get_armor_load(a: AthleteDep, s: Db, on: Day | None = None) -> ArmorLoadOut:
 @router.get("/athletes/{athlete_id}/strength", response_model=list[StrengthOut])
 def get_strength(a: AthleteDep, s: Db) -> list[StrengthOut]:
     """Estimated 1RM per lift, from sets logged with reps + RPE."""
-    records = athlete_records(s, a.id)
+    return strength_out(a, athlete_records(s, a.id))
+
+
+def strength_out(a: Athlete, records: Sequence[SetRecord]) -> list[StrengthOut]:
     out = []
     for ex_id in sorted({r.exercise_id for r in records}):
-        ex = EXERCISES[ex_id]
+        ex = EXERCISES.get(ex_id)
+        if ex is None:  # an id since removed from the catalog: its history can't be scored
+            continue
         hist = e1rm_history(records, ex_id, system_extra(ex, a.bodyweight_kg))
         if (cur := current_e1rm(hist)) is not None:
             out.append(StrengthOut(exercise_id=ex_id, name=ex.name, e1rm_kg=cur,

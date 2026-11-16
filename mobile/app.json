@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Knightfall",
+    "name": "Kinetic",
     "slug": "knightfall",
     "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "dev.knightfall.app",
@@ -17,7 +17,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0A0A0B",
+        "backgroundColor": "#0B0B0D",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -30,6 +30,7 @@
         "android.permission.health.READ_SLEEP",
         "android.permission.health.READ_RESTING_HEART_RATE",
         "android.permission.health.READ_WEIGHT",
+        "android.permission.health.READ_STEPS",
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.POST_NOTIFICATIONS"
       ]
@@ -39,7 +40,21 @@
     },
     "plugins": [
       "expo-router",
-      "expo-sqlite",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 140,
+          "resizeMode": "contain",
+          "backgroundColor": "#0B0B0D"
+        }
+      ],
+      [
+        "expo-sqlite",
+        {
+          "enableFTS": true
+        }
+      ],
       [
         "expo-audio",
         {
@@ -64,7 +79,8 @@
           "color": "#D97706",
           "sounds": [
             "./assets/sounds/alarm.wav",
-            "./assets/sounds/rest.wav"
+            "./assets/sounds/rest.wav",
+            "./assets/sounds/rest_alarm.wav"
           ]
         }
       ],
@@ -86,7 +102,7 @@
       [
         "@kingstinct/react-native-healthkit",
         {
-          "NSHealthShareUsageDescription": "Ler VFC (variabilidade da frequência cardíaca), frequência cardíaca de repouso, sono e peso para a prontidão e as metas da dieta.",
+          "NSHealthShareUsageDescription": "Ler VFC (variabilidade da frequência cardíaca), frequência cardíaca de repouso, sono e peso para a prontidão e as metas da dieta, e passos para a rotina.",
           "NSHealthUpdateUsageDescription": false,
           "background": false
         }

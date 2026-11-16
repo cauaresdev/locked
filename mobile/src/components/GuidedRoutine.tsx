@@ -7,7 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { clock } from '../engine/format';
 import { EVENING_ROUTINE, positionAt, totalSeconds } from '../engine/guided';
 import { useComms } from '../hooks/useComms';
-import { colors, space } from '../theme';
+import { colors, radius, space, themed } from '../theme';
+import { ExerciseThumb } from './ExerciseDemo';
+import { Icon } from './Icon';
 import { Button, Dots, ProgressBar, T } from './ui';
 
 const KEEP_AWAKE_TAG = 'guided-routine';
@@ -69,9 +71,19 @@ export function GuidedRoutine({ visible, onClose, onDone }: { visible: boolean; 
           {!startedAt ? (
             <>
               <T variant="display">Mobilidade e respiração</T>
-              {steps.map((s) => (
-                <T key={s.name} color={colors.textMuted}>{s.name} · {clock(s.seconds)}</T>
-              ))}
+              <View style={{ alignSelf: 'stretch', gap: space.sm }}>
+                {steps.map((s) => (
+                  <View key={s.name} style={styles.stepRow}>
+                    {s.breathing ? (
+                      <View style={styles.breathIcon}><Icon name="moon" size={22} color={colors.accent} /></View>
+                    ) : (
+                      <ExerciseThumb exerciseId={s.exerciseId ?? ''} size={52} width={64} radius={radius.md} />
+                    )}
+                    <T style={{ flex: 1, fontWeight: '600' }}>{s.name}</T>
+                    <T variant="label">{clock(s.seconds)}</T>
+                  </View>
+                ))}
+              </View>
               <T variant="hint">Faça depois de desligar as telas. A voz avisa cada troca; a tela fica acesa.</T>
             </>
           ) : finished ? (
@@ -82,6 +94,9 @@ export function GuidedRoutine({ visible, onClose, onDone }: { visible: boolean; 
           ) : step ? (
             <>
               <Dots done={pos.index} total={steps.length} color={colors.success} />
+              {step.exerciseId && (
+                <ExerciseThumb exerciseId={step.exerciseId} size={180} width={270} radius={radius.lg} placeholder={false} />
+              )}
               <T variant="display" style={{ textAlign: 'center' }}>{step.name}</T>
               {pos.breath ? (
                 <>
@@ -104,7 +119,15 @@ export function GuidedRoutine({ visible, onClose, onDone }: { visible: boolean; 
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg, padding: space.lg, gap: space.xl },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg },
-});
+  stepRow: {
+    flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.sm, paddingRight: space.md,
+    borderRadius: radius.lg, backgroundColor: colors.surface,
+  },
+  breathIcon: {
+    width: 64, height: 52, borderRadius: radius.md, backgroundColor: colors.surfaceHigh, alignItems: 'center',
+    justifyContent: 'center',
+  },
+}));

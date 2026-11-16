@@ -24,6 +24,11 @@ export function withCheck(r: Routine, itemId: string, check: RoutineCheck): Rout
       const value = check.value ?? i.value ?? 0;
       return { ...i, value, done: i.target != null && value >= i.target };
     }
+    if (i.kind === 'steps' && check.value != null) {
+      // A count from the watch: done at the target, or by hand (a manual tick survives a recount).
+      const reached = i.target != null && check.value >= i.target;
+      return { ...i, value: check.value, auto: reached, done: reached || (!i.auto && i.done) };
+    }
     return { ...i, done: (i.auto && i.done) || !!check.done };
   });
   const done = items.filter((i) => i.done).length;

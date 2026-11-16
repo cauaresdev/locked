@@ -6,11 +6,12 @@ import { api } from '../api/client';
 import type { Measurements, MeasurementSite } from '../api/types';
 import { shortDay } from '../engine/chart';
 import { decimal, isoDay, parseDecimal } from '../engine/format';
+import { MEASUREMENTS_KEY } from '../storage/db';
 import { colors, space } from '../theme';
 import { ChartCard, LineChart } from './charts';
 import { Button, Chip, Field, Panel, Row, T, TextLink } from './ui';
 
-const CACHE_KEY = 'measurements';
+const CACHE_KEY = MEASUREMENTS_KEY; // in db.ts, so sign-out clears it with the rest
 
 function cached(): Measurements | null {
   try {

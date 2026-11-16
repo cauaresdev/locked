@@ -4,7 +4,10 @@ import { Platform } from 'react-native';
 
 // Channel sound/importance can't change after creation on Android: bump the id to change them.
 const CHANNEL = 'early_bird_v1';
-const REST_CHANNEL = 'rest_v1';
+// v2: alarm audio (plays with the phone on vibrate, at alarm volume) and a longer sound.
+const REST_CHANNEL = 'rest_v2';
+const OLD_REST_CHANNELS = ['rest_v1'];
+const REST_SOUND = 'rest_alarm.wav';
 const ALARM_ID = 'early-bird-alarm';
 
 export function configureNotifications(): void {
@@ -18,20 +21,46 @@ export function configureNotifications(): void {
   });
 }
 
-async function ensureRestChannel(): Promise<void> {
-  if (Platform.OS !== 'android') return;
-  await Notifications.setNotificationChannelAsync(REST_CHANNEL, {
-    name: 'Fim do descanso',
-    importance: Notifications.AndroidImportance.HIGH,
-    sound: 'rest.wav',
-    vibrationPattern: [0, 300, 150, 300, 150, 300],
+let restChannelReady: Promise<void> | null = null;
+
+/**
+ * The end of a rest is an alarm, like a kitchen timer: on the notification stream it was silent
+ * whenever the phone was on vibrate (most of the time at the gym) and easy to miss under music.
+ */
+function ensureRestChannel(): Promise<void> {
+  if (Platform.OS !== 'android') return Promise.resolve();
+  restChannelReady ??= (async () => {
+    await Promise.all(OLD_REST_CHANNELS.map((id) => Notifications.deleteNotificationChannelAsync(id).catch(() => {})));
+    await Notifications.setNotificationChannelAsync(REST_CHANNEL, {
+      name: 'Fim do descanso e timers',
+      description: 'Toca como alarme quando o descanso ou um timer do treino termina com o app fora da tela.',
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: REST_SOUND,
+      audioAttributes: {
+        usage: Notifications.AndroidAudioUsage.ALARM,
+        contentType: Notifications.AndroidAudioContentType.SONIFICATION,
+      },
+      vibrationPattern: [0, 400, 200, 400, 200, 400],
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+  })().catch((e) => {
+    restChannelReady = null;
+    throw e;
   });
+  return restChannelReady;
 }
 
 // Local module (modules/exact-alarm): Android 12+ only, absent elsewhere.
-const ExactAlarm = requireOptionalNativeModule<{ canScheduleExactAlarms(): boolean; openSettings(): void }>(
-  'ExactAlarm',
-);
+const ExactAlarm = requireOptionalNativeModule<{
+  canScheduleExactAlarms(): boolean;
+  openSettings(): void;
+  // Absent in builds made before the module had them.
+  scheduleRestAlarm?(tag: string, delayMs: number, channel: string, title: string, body: string): boolean;
+  cancelRestAlarm?(tag: string): void;
+  restAlarmShown?(tag: string): boolean;
+}>('ExactAlarm');
+
+let restSeq = 0;
 
 /**
  * Without "Alarms & reminders" (denied by default from Android 14), Android may hold a scheduled
@@ -56,22 +85,57 @@ export async function prepareRestAlerts(): Promise<boolean> {
   return perm.granted && !exactAlarmsAllowed();
 }
 
+export interface RestAlert {
+  /** Cancels it if pending and clears it from the tray. */
+  cancel(): void;
+  /** Whether the OS already showed it (and played its sound). */
+  shown(): Promise<boolean>;
+}
+
 /**
- * End-of-rest alert delivered by the OS: with the screen locked or the app in the background the
- * JS countdown is suspended and can't beep. Returns a cancel that also clears it from the tray.
+ * End-of-rest (or end-of-timer) alert delivered by the OS: with the screen locked or the app in the
+ * background the JS countdown is suspended and can't beep.
  */
-export function scheduleRestAlert(seconds: number, body: string): () => void {
+export function scheduleRestAlert(seconds: number, body: string, title = 'Descanso encerrado'): RestAlert {
+  // Android: posted by the app's own module in the alarm category, so the channel's alarm audio
+  // holds (Android 15+ turns it back into notification audio otherwise, silent on vibrate).
+  const native = ExactAlarm?.scheduleRestAlarm ? ExactAlarm : null;
+  if (Platform.OS === 'android' && native) {
+    const tag = `rest-${Date.now()}-${++restSeq}`;
+    let cancelled = false;
+    const scheduled = (async () => {
+      await ensureRestChannel();
+      if (!(await Notifications.getPermissionsAsync()).granted || cancelled) return false;
+      return native.scheduleRestAlarm!(tag, Math.max(1, seconds) * 1000, REST_CHANNEL, title, body);
+    })().catch(() => false);
+    return {
+      cancel: () => {
+        cancelled = true;
+        try {
+          native.cancelRestAlarm?.(tag);
+        } catch {
+          // nothing scheduled
+        }
+        // Scheduled while the cancel ran: drop it once the call lands.
+        scheduled.then((ok) => ok && native.cancelRestAlarm?.(tag)).catch(() => {});
+      },
+      shown: async () => (await scheduled) && !!native.restAlarmShown?.(tag),
+    };
+  }
   let id: string | null = null;
   let cancelled = false;
   const drop = (n: string) => {
     Notifications.cancelScheduledNotificationAsync(n).catch(() => {});
     Notifications.dismissNotificationAsync(n).catch(() => {});
   };
-  (async () => {
+  const scheduled = (async () => {
     await ensureRestChannel();
     if (!(await Notifications.getPermissionsAsync()).granted) return;
     id = await Notifications.scheduleNotificationAsync({
-      content: { title: 'Descanso encerrado', body, sound: 'rest.wav', data: { kind: 'rest' } },
+      content: {
+        title, body, sound: REST_SOUND, data: { kind: 'rest' },
+        priority: Notifications.AndroidNotificationPriority.MAX,
+      },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
         seconds: Math.max(1, Math.round(seconds)),
@@ -80,10 +144,30 @@ export function scheduleRestAlert(seconds: number, body: string): () => void {
     });
     if (cancelled) drop(id); // skipped while the schedule call was in flight
   })().catch(() => {});
-  return () => {
-    cancelled = true;
-    if (id) drop(id);
+  return {
+    cancel: () => {
+      cancelled = true;
+      if (id) drop(id);
+    },
+    shown: async () => {
+      await scheduled;
+      if (!id) return false;
+      const shownNow = await Notifications.getPresentedNotificationsAsync().catch(() => []);
+      return shownNow.some((n) => n.request.identifier === id);
+    },
   };
+}
+
+/**
+ * A countdown noticed late (JS was suspended) only stays quiet when the OS alert actually went off.
+ * Without "Alarms & reminders" Android may still be holding it: then it is cancelled and the caller
+ * beeps in the app instead. Resolves true when the app should sound the end itself.
+ */
+export async function shouldSoundLateEnd(alert: RestAlert | null): Promise<boolean> {
+  if (!alert) return true;
+  if (await alert.shown()) return false;
+  alert.cancel();
+  return true;
 }
 
 async function ensureChannel(): Promise<void> {
@@ -125,6 +209,9 @@ export async function cancelEarlyBird(): Promise<void> {
 
 const ROUTINE_CHANNEL = 'routine_v1';
 const ROUTINE_IDS = ['routine-water-1', 'routine-water-2', 'routine-water-3', 'routine-screens', 'routine-bed'];
+const REVIEW_ID = 'routine-review';
+const SUNDAY = 1; // expo-notifications weekdays: 1 = Sunday
+const REVIEW_BEFORE_SCREENS_MIN = 90;
 
 async function ensureRoutineChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
@@ -176,9 +263,90 @@ export async function scheduleRoutineReminders(wake: string, screensOff: string,
       },
     });
   }
+  // Sunday, before the evening wind-down: the week's review is ready on Progresso.
+  const t = (((minutesOf(screensOff) - REVIEW_BEFORE_SCREENS_MIN) % 1440) + 1440) % 1440;
+  await Notifications.scheduleNotificationAsync({
+    identifier: REVIEW_ID,
+    content: { title: 'Revisão da semana', body: 'Treinos, sono, peso e o que ajustar na próxima semana.',
+      data: { route: '/progress' } },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.WEEKLY, weekday: SUNDAY, hour: Math.floor(t / 60),
+      minute: t % 60, channelId: ROUTINE_CHANNEL },
+  });
   return true;
 }
 
 export async function cancelRoutineReminders(): Promise<void> {
-  await Promise.all(ROUTINE_IDS.map((id) => Notifications.cancelScheduledNotificationAsync(id).catch(() => {})));
+  await Promise.all([...ROUTINE_IDS, REVIEW_ID].map((id) =>
+    Notifications.cancelScheduledNotificationAsync(id).catch(() => {})));
+}
+
+// --- training-day reminders ---------------------------------------------------------
+
+const TRAINING_PREFIX = 'training-';
+export const PRE_MEAL_MINUTES = 90; // a mixed meal 1-2 h before lifting
+export const TRAINING_HEADS_UP_MINUTES = 15;
+export const TRAINING_REMINDER_DAYS = 7;
+
+export interface PlannedReminder {
+  id: string;
+  date: Date;
+  title: string;
+  body: string;
+}
+
+/**
+ * Pre-workout meal (90 min before) and a heads-up (15 min before) on each upcoming training day, from the
+ * cached schedule. Rest and recovery days get nothing; reminders already in the past are skipped.
+ */
+export function trainingReminderPlan(
+  trainingTime: string,
+  sessions: { day: string; is_training_day: boolean; day_name: string; target_duration_minutes: number }[],
+  now: Date = new Date(),
+): PlannedReminder[] {
+  const at = minutesOf(trainingTime);
+  const out: PlannedReminder[] = [];
+  for (const s of sessions) {
+    if (!s.is_training_day) continue;
+    const [y, m, d] = s.day.split('-').map(Number);
+    const start = new Date(y, m - 1, d, Math.floor(at / 60), at % 60);
+    const meal = new Date(+start - PRE_MEAL_MINUTES * 60_000);
+    const go = new Date(+start - TRAINING_HEADS_UP_MINUTES * 60_000);
+    if (meal > now) {
+      out.push({ id: `${TRAINING_PREFIX}${s.day}-meal`, date: meal, title: 'Refeição pré-treino',
+        body: `Treino às ${trainingTime}: carboidrato e proteína agora, e 500 ml de água.` });
+    }
+    if (go > now) {
+      out.push({ id: `${TRAINING_PREFIX}${s.day}-go`, date: go, title: `Treino em ${TRAINING_HEADS_UP_MINUTES} min`,
+        body: `${s.day_name} · cerca de ${s.target_duration_minutes} min. Aqueça e abra o app.` });
+    }
+  }
+  return out;
+}
+
+export async function requestNotificationPermission(): Promise<boolean> {
+  await ensureRoutineChannel(); // Android 13+ only prompts once a channel exists
+  const perm = await Notifications.requestPermissionsAsync();
+  return perm.granted;
+}
+
+export async function cancelTrainingReminders(): Promise<void> {
+  const all = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
+  await Promise.all(all.filter((n) => n.identifier.startsWith(TRAINING_PREFIX))
+    .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier).catch(() => {})));
+}
+
+/** Replaces the scheduled training reminders. Never prompts: false when notifications are not allowed. */
+export async function scheduleTrainingReminders(plan: PlannedReminder[]): Promise<boolean> {
+  const perm = await Notifications.getPermissionsAsync();
+  if (!perm.granted) return false;
+  await ensureRoutineChannel();
+  await cancelTrainingReminders();
+  for (const r of plan) {
+    await Notifications.scheduleNotificationAsync({
+      identifier: r.id,
+      content: { title: r.title, body: r.body, data: { route: '/today' } },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: r.date, channelId: ROUTINE_CHANNEL },
+    });
+  }
+  return true;
 }

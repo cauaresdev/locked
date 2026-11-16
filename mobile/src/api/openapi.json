@@ -279,6 +279,19 @@
             ],
             "title": "Sleep Target Hours"
           },
+          "steps_target": {
+            "anyOf": [
+              {
+                "maximum": 30000.0,
+                "minimum": 2000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steps Target"
+          },
           "tier": {
             "$ref": "#/components/schemas/Tier"
           },
@@ -293,6 +306,18 @@
               }
             ],
             "title": "Timezone"
+          },
+          "training_time": {
+            "anyOf": [
+              {
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training Time"
           },
           "wake_time": {
             "anyOf": [
@@ -456,12 +481,27 @@
             "title": "Sleep Target Hours",
             "type": "number"
           },
+          "steps_target": {
+            "title": "Steps Target",
+            "type": "integer"
+          },
           "tier": {
             "$ref": "#/components/schemas/Tier"
           },
           "timezone": {
             "title": "Timezone",
             "type": "string"
+          },
+          "training_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training Time"
           },
           "waiver_accepted_at": {
             "anyOf": [
@@ -499,6 +539,8 @@
           "equipment",
           "health_consent_at",
           "sleep_target_hours",
+          "steps_target",
+          "training_time",
           "nutrition_goal",
           "routine_items",
           "cycle_length",
@@ -676,6 +718,19 @@
             ],
             "title": "Sleep Target Hours"
           },
+          "steps_target": {
+            "anyOf": [
+              {
+                "maximum": 30000.0,
+                "minimum": 2000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steps Target"
+          },
           "tier": {
             "anyOf": [
               {
@@ -697,6 +752,18 @@
               }
             ],
             "title": "Timezone"
+          },
+          "training_time": {
+            "anyOf": [
+              {
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training Time"
           },
           "wake_time": {
             "anyOf": [
@@ -1041,6 +1108,47 @@
         ],
         "title": "ExecutionStyle",
         "type": "string"
+      },
+      "ExercisePreferenceIn": {
+        "properties": {
+          "replacement_id": {
+            "title": "Replacement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "replacement_id"
+        ],
+        "title": "ExercisePreferenceIn",
+        "type": "object"
+      },
+      "ExercisePreferenceOut": {
+        "properties": {
+          "exercise_id": {
+            "title": "Exercise Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "replacement_id": {
+            "title": "Replacement Id",
+            "type": "string"
+          },
+          "replacement_name": {
+            "title": "Replacement Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "exercise_id",
+          "name",
+          "replacement_id",
+          "replacement_name"
+        ],
+        "title": "ExercisePreferenceOut",
+        "type": "object"
       },
       "FoodEntryIn": {
         "properties": {
@@ -1828,6 +1936,11 @@
       },
       "Prescription": {
         "properties": {
+          "amrap_last_set": {
+            "default": false,
+            "title": "Amrap Last Set",
+            "type": "boolean"
+          },
           "best_e1rm_kg": {
             "anyOf": [
               {
@@ -2094,7 +2207,8 @@
           "cues",
           "last_set",
           "best_e1rm_kg",
-          "warmup_sets"
+          "warmup_sets",
+          "amrap_last_set"
         ],
         "title": "Prescription",
         "type": "object"
@@ -2530,7 +2644,7 @@
           "value": {
             "anyOf": [
               {
-                "maximum": 15000.0,
+                "maximum": 100000.0,
                 "minimum": 0.0,
                 "type": "number"
               },
@@ -2601,7 +2715,8 @@
           "kind": {
             "enum": [
               "check",
-              "water"
+              "water",
+              "steps"
             ],
             "title": "Kind",
             "type": "string"
@@ -2836,6 +2951,28 @@
             "title": "Is Training Day",
             "type": "boolean"
           },
+          "meso_length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meso Length"
+          },
+          "meso_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meso Week"
+          },
           "notices": {
             "items": {
               "type": "string"
@@ -2882,6 +3019,8 @@
           "rest_cap_seconds",
           "readiness",
           "deload",
+          "meso_week",
+          "meso_length",
           "notices",
           "blocks"
         ],
@@ -4055,6 +4194,172 @@
         ]
       }
     },
+    "/athletes/{athlete_id}/exercise-preferences": {
+      "get": {
+        "description": "Standing swaps: wherever the plan puts an exercise, the athlete does its replacement.",
+        "operationId": "list_exercise_preferences_athletes__athlete_id__exercise_preferences_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ExercisePreferenceOut"
+                  },
+                  "title": "Response List Exercise Preferences Athletes  Athlete Id  Exercise Preferences Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Exercise Preferences",
+        "tags": [
+          "training"
+        ]
+      }
+    },
+    "/athletes/{athlete_id}/exercise-preferences/{exercise_id}": {
+      "delete": {
+        "operationId": "delete_exercise_preference_athletes__athlete_id__exercise_preferences__exercise_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exercise_id",
+            "required": true,
+            "schema": {
+              "title": "Exercise Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Exercise Preference",
+        "tags": [
+          "training"
+        ]
+      },
+      "put": {
+        "description": "Always do `replacement_id` where the plan puts `exercise_id` (when it fits that slot).",
+        "operationId": "put_exercise_preference_athletes__athlete_id__exercise_preferences__exercise_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exercise_id",
+            "required": true,
+            "schema": {
+              "title": "Exercise Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExercisePreferenceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExercisePreferenceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Exercise Preference",
+        "tags": [
+          "training"
+        ]
+      }
+    },
     "/athletes/{athlete_id}/food-entries": {
       "post": {
         "operationId": "post_food_entries_athletes__athlete_id__food_entries_post",
@@ -4865,7 +5170,7 @@
             "name": "block",
             "required": true,
             "schema": {
-              "maximum": 3,
+              "maximum": 10,
               "minimum": 1,
               "title": "Block",
               "type": "integer"

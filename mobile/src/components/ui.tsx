@@ -1,7 +1,8 @@
 import * as Haptics from 'expo-haptics';
-import { useRef, useState, type ReactNode, type Ref } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import {
-  Alert,
+  Animated,
+  Easing,
   Pressable,
   StyleSheet,
   Text,
@@ -12,9 +13,115 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import { colors, fonts, radius, space } from '../theme';
+import { cardShadow, colors, radius, scheme, space, themed } from '../theme';
 import { Icon, type IconName } from './Icon';
+import { ms, reduceMotion } from './motion';
+import { toast } from './Toast';
+
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/** Scale that sinks while a finger is down and springs back on release. */
+function usePressScale(to: number) {
+  const scale = useState(() => new Animated.Value(1))[0];
+  const go = (v: number, bounce: number) => {
+    if (reduceMotion()) return;
+    Animated.spring(scale, { toValue: v, useNativeDriver: true, speed: 40, bounciness: bounce }).start();
+  };
+  return { scale, onPressIn: () => go(to, 0), onPressOut: () => go(1, 6) };
+}
+
+/** A tappable card or area: sinks slightly under the finger. */
+export function Tappable({
+  children,
+  onPress,
+  style,
+  accessibilityLabel,
+  accessibilityHint,
+  accessibilityState,
+}: {
+  children: ReactNode;
+  onPress: () => void;
+  style?: StyleProp<ViewStyle>;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+  accessibilityState?: { expanded?: boolean };
+}) {
+  const { scale, onPressIn, onPressOut } = usePressScale(0.97);
+  return (
+    <AnimatedPressable
+      onPress={() => {
+        Haptics.selectionAsync().catch(() => {});
+        onPress();
+      }}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={accessibilityState}
+      style={[{ transform: [{ scale }] }, style]}
+    >
+      {children}
+    </AnimatedPressable>
+  );
+}
+
+/** Content that rises and fades in on mount; `delay` staggers a list of them. */
+export function FadeIn({ children, delay = 0, style }: { children: ReactNode; delay?: number; style?: StyleProp<ViewStyle> }) {
+  const t = useState(() => new Animated.Value(reduceMotion() ? 1 : 0))[0];
+  useEffect(() => {
+    Animated.timing(t, {
+      toValue: 1,
+      duration: ms(360),
+      delay: ms(delay),
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [t, delay]);
+  const translateY = t.interpolate({ inputRange: [0, 1], outputRange: [10, 0] });
+  return <Animated.View style={[{ opacity: t, transform: [{ translateY }] }, style]}>{children}</Animated.View>;
+}
+
+/** A number that counts up to its value (and glides between values when it changes). */
+export function CountUp({
+  value,
+  digits = 0,
+  variant = 'metric',
+  color,
+  style,
+  format,
+}: {
+  value: number;
+  digits?: number;
+  variant?: TextVariant;
+  color?: string;
+  style?: StyleProp<TextStyle>;
+  /** Overrides `digits`: e.g. thousands separators. */
+  format?: (n: number) => string;
+}) {
+  const anim = useState(() => new Animated.Value(reduceMotion() ? value : 0))[0];
+  const [shown, setShown] = useState(reduceMotion() ? value : 0);
+  useEffect(() => {
+    const id = anim.addListener(({ value: v }) => setShown(v));
+    const run = Animated.timing(anim, { toValue: value, duration: ms(700), easing: Easing.out(Easing.cubic),
+      useNativeDriver: false });
+    // Only a finished run snaps to the target: an interrupted one (new value) would flash the old target.
+    run.start(({ finished }) => finished && setShown(value));
+    return () => {
+      run.stop();
+      anim.removeListener(id);
+    };
+  }, [anim, value]);
+  const fmt = format ?? ((n: number) => n.toFixed(digits).replace('.', ','));
+  return (
+    <View accessible accessibilityLabel={fmt(value)}>
+      <T variant={variant} color={color} style={style}>{fmt(shown)}</T>
+    </View>
+  );
+}
 
 // display: screen titles. title: card/section titles. label: short muted captions next to values.
 // hint: explanatory sentences, readable at arm's length mid-set. metric/hero: numbers (monospace,
@@ -95,7 +202,8 @@ export function Panel({
   raised?: boolean;
 }) {
   return (
-    <View style={[styles.panel, raised && { backgroundColor: colors.surfaceHigh }, accent ? tint(accent) : null, style]}>
+    <View style={[styles.panel, raised && { backgroundColor: colors.surfaceHigh }, accent ? tint(accent) : null,
+      (raised || accent) && styles.flat, style]}>
       {children}
     </View>
   );
@@ -139,38 +247,44 @@ export function Button({
   const off = disabled || busy;
   const press = () => {
     if (pending.current) return;
+    // A firm tap for the screen's main action, a light one for the rest.
+    if (tone === 'primary') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    else Haptics.selectionAsync().catch(() => {});
     const r = onPress();
     if (!(r instanceof Promise)) return;
     pending.current = true;
     setBusy(true);
     // Handlers report their own expected failures; anything that still escapes is shown, not swallowed.
-    r.catch((e: unknown) => Alert.alert('Erro', e instanceof Error ? e.message : String(e))).finally(() => {
+    r.catch((e: unknown) => toast('Algo deu errado', e instanceof Error ? e.message : String(e))).finally(() => {
       pending.current = false;
       setBusy(false);
     });
   };
+  const { scale, onPressIn, onPressOut } = usePressScale(0.96);
   const primary = tone === 'primary';
   const danger = tone === 'danger' || tone === 'alert';
   const fg = primary ? colors.onAccent : danger ? colors.danger : colors.text;
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityState={{ disabled: !!off, busy }}
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
       disabled={off}
       onPress={press}
-      style={({ pressed }) => [
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      style={[
         styles.button,
         !primary && styles.buttonSecondary,
         off && styles.buttonDisabled,
-        pressed && !off && styles.buttonPressed,
+        { transform: [{ scale }] },
         style,
       ]}
     >
       {icon && <Icon name={icon} size={18} color={fg} />}
       <Text style={[styles.buttonLabel, { color: fg }]}>{label}</Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -218,16 +332,32 @@ export function Chip({
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
 }) {
+  // A chip that turns on pops; every chip sinks under the finger.
+  const { scale, onPressIn, onPressOut } = usePressScale(0.94);
+  const pop = useState(() => new Animated.Value(1))[0];
+  const was = useRef(selected);
+  useEffect(() => {
+    if (selected && !was.current && !reduceMotion()) {
+      pop.setValue(0.88);
+      Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 14 }).start();
+    }
+    was.current = selected;
+  }, [selected, pop]);
   return (
-    <Pressable
-      onPress={onPress}
+    <AnimatedPressable
+      onPress={() => {
+        Haptics.selectionAsync().catch(() => {});
+        onPress();
+      }}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
       accessibilityRole={role}
       accessibilityState={{ checked: selected }}
       accessibilityLabel={accessibilityLabel}
-      style={[styles.chip, selected && styles.chipOn, style]}
+      style={[styles.chip, selected && styles.chipOn, { transform: [{ scale: Animated.multiply(scale, pop) }] }, style]}
     >
-      <Text style={[styles.chipText, { color: selected ? colors.bg : colors.text }]}>{label}</Text>
-    </Pressable>
+      <Text style={[styles.chipText, { color: selected ? colors.onAccent : colors.text }]}>{label}</Text>
+    </AnimatedPressable>
   );
 }
 
@@ -247,20 +377,29 @@ export function Checkbox({
   borderColor?: string; // border when unchecked
   accessibilityLabel?: string;
 }) {
+  // A tick pops: the box overshoots and settles.
+  const pop = useState(() => new Animated.Value(1))[0];
+  const toggle = () => {
+    Haptics.selectionAsync().catch(() => {});
+    if (!checked && !reduceMotion()) {
+      pop.setValue(0.6);
+      Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 14 }).start();
+    }
+    onChange(!checked);
+  };
   return (
     <Pressable
-      onPress={() => {
-        Haptics.selectionAsync().catch(() => {});
-        onChange(!checked);
-      }}
+      onPress={toggle}
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
       accessibilityLabel={accessibilityLabel}
       style={styles.checkRow}
     >
-      <View style={[styles.box, { borderColor }, checked && { backgroundColor: color, borderColor: color }]}>
-        {checked && <Icon name="check" size={14} color={colors.bg} strokeWidth={3} />}
-      </View>
+      <Animated.View
+        style={[styles.box, { borderColor }, checked && { backgroundColor: color, borderColor: color }, { transform: [{ scale: pop }] }]}
+      >
+        {checked && <Icon name="check" size={14} color={colors.surface} strokeWidth={3} />}
+      </Animated.View>
       {children}
     </Pressable>
   );
@@ -321,12 +460,22 @@ export function ListRow({
   );
 }
 
+/** An animated width for a bar fill, 0–1: grows from empty on mount and glides to new values. */
+export function useFillWidth(fraction: number) {
+  const target = Math.max(0, Math.min(1, fraction));
+  const anim = useState(() => new Animated.Value(reduceMotion() ? target : 0))[0];
+  useEffect(() => {
+    Animated.timing(anim, { toValue: target, duration: ms(700), easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+  }, [anim, target]);
+  return anim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+}
+
 /** Thin progress track, 0–1. */
-export function ProgressBar({ value, color = colors.accent }: { value: number; color?: string }) {
-  const pct = Math.max(0, Math.min(1, value)) * 100;
+export function ProgressBar({ value, color = colors.accent, trackColor }: { value: number; color?: string; trackColor?: string }) {
+  const width = useFillWidth(value);
   return (
-    <View style={styles.track}>
-      <View style={[styles.trackFill, { width: `${pct}%`, backgroundColor: color }]} />
+    <View style={[styles.track, trackColor ? { backgroundColor: trackColor } : null]}>
+      <Animated.View style={[styles.trackFill, { width, backgroundColor: color }]} />
     </View>
   );
 }
@@ -336,8 +485,73 @@ export function Dots({ done, total, color = colors.accent }: { done: number; tot
   return (
     <View style={{ flexDirection: 'row', gap: 6 }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       {Array.from({ length: total }, (_, i) => (
-        <View key={i} style={[styles.dot, { backgroundColor: i < done ? color : colors.surfaceHigh }]} />
+        <Dot key={i} on={i < done} color={color} />
       ))}
+    </View>
+  );
+}
+
+/** One dot; filling it pops it (a set just logged, a habit just ticked). */
+function Dot({ on, color }: { on: boolean; color: string }) {
+  const scale = useState(() => new Animated.Value(1))[0];
+  const mounted = useRef(false);
+  useEffect(() => {
+    // Not on mount: only a dot that fills while on screen pops.
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    if (!on || reduceMotion()) return;
+    scale.setValue(1.8);
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 12 }).start();
+  }, [on, scale]);
+  return <Animated.View style={[styles.dot, { backgroundColor: on ? color : colors.surfaceHigh, transform: [{ scale }] }]} />;
+}
+
+/** Content that pops in on mount: a check that just appeared, a badge just earned. */
+export function PopIn({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  const scale = useState(() => new Animated.Value(reduceMotion() ? 1 : 0.4))[0];
+  useEffect(() => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 12 }).start();
+  }, [scale]);
+  return <Animated.View style={[{ transform: [{ scale }] }, style]}>{children}</Animated.View>;
+}
+
+/** Placeholder block with a sheen sweeping across it while content loads. */
+export function Skeleton({ height = 16, width = '100%', style }: { height?: number; width?: ViewStyle['width']; style?: StyleProp<ViewStyle> }) {
+  const t = useState(() => new Animated.Value(0))[0];
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    if (reduceMotion() || !w) return;
+    const loop = Animated.loop(
+      Animated.timing(t, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [t, w]);
+  const translateX = t.interpolate({ inputRange: [0, 1], outputRange: [-w, w] });
+  const sheen = scheme() === 'light' ? 0.65 : 0.07;
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      onLayout={(e) => setW(e.nativeEvent.layout.width)}
+      style={[{ height, width, borderRadius: radius.sm, backgroundColor: colors.surfaceHigh, overflow: 'hidden' }, style]}
+    >
+      {w > 0 && (
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ translateX }] }]}>
+          <Svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 1 1">
+            <Defs>
+              <LinearGradient id="sheen" x1="0" y1="0" x2="1" y2="0">
+                <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0} />
+                <Stop offset="0.5" stopColor="#FFFFFF" stopOpacity={sheen} />
+                <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0} />
+              </LinearGradient>
+            </Defs>
+            <Rect x="0" y="0" width="1" height="1" fill="url(#sheen)" />
+          </Svg>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -363,38 +577,40 @@ export function Row({ children, style }: { children: ReactNode; style?: StylePro
   return <View style={[{ flexDirection: 'row', alignItems: 'center', gap: space.sm }, style]}>{children}</View>;
 }
 
-const styles = StyleSheet.create({
-  display: { fontSize: 30, fontWeight: '700', color: colors.text, letterSpacing: -0.5, lineHeight: 36 },
-  title: { fontSize: 18, fontWeight: '600', color: colors.text, lineHeight: 24 },
+const styles = themed(() => StyleSheet.create({
+  // The display face carries its own weight: a fontWeight on a custom family breaks it on Android.
+  display: { fontSize: 30, fontWeight: '700', color: colors.text, letterSpacing: -0.4, lineHeight: 36 },
+  title: { fontSize: 17, fontWeight: '600', color: colors.text, lineHeight: 23 },
   body: { fontSize: 15, color: colors.text, lineHeight: 21 },
   label: { fontSize: 13, fontWeight: '500', color: colors.textMuted, lineHeight: 18 },
   hint: { fontSize: 13, color: colors.textMuted, lineHeight: 19 },
   tag: { fontSize: 11, fontWeight: '600', color: colors.textMuted, letterSpacing: 0.6, textTransform: 'uppercase' },
-  metric: { fontFamily: fonts.monoBold, fontSize: 28, color: colors.text, fontVariant: ['tabular-nums'] },
-  hero: { fontFamily: fonts.monoBold, fontSize: 64, color: colors.text, fontVariant: ['tabular-nums'], lineHeight: 72 },
+  metric: { fontSize: 28, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
+  hero: { fontSize: 64, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'], lineHeight: 72, letterSpacing: -1 },
   header: { flexDirection: 'row', alignItems: 'flex-end', gap: space.md, paddingTop: space.sm, paddingBottom: space.xs },
   panel: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: space.lg,
     gap: space.sm,
+    ...cardShadow,
   },
   button: {
     flexDirection: 'row',
     gap: space.sm,
     backgroundColor: colors.accent,
-    borderRadius: 14,
+    borderRadius: radius.md,
     paddingVertical: space.md + 2,
     paddingHorizontal: space.lg,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 50,
   },
+  flat: { shadowOpacity: 0, elevation: 0 }, // tinted or nested cards: a shadow behind a translucent fill smears
   buttonSecondary: { backgroundColor: colors.surfaceHigh },
   buttonDisabled: { opacity: 0.4 },
-  buttonPressed: { opacity: 0.75 },
   buttonLabel: { fontSize: 16, fontWeight: '600' },
-  badge: { borderRadius: radius.pill, paddingHorizontal: space.sm + 2, paddingVertical: 3, alignSelf: 'flex-start' },
+  badge: { borderRadius: radius.pill, paddingHorizontal: space.sm + 2, paddingVertical: 4, alignSelf: 'flex-start' },
   badgeText: { fontSize: 12, fontWeight: '600' },
   input: {
     fontSize: 17,
@@ -416,7 +632,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  chipOn: { backgroundColor: colors.text },
+  chipOn: { backgroundColor: colors.accent },
   chipText: { fontSize: 14, fontWeight: '500' },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 44 },
   box: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
@@ -431,4 +647,4 @@ const styles = StyleSheet.create({
   track: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceHigh, overflow: 'hidden' },
   trackFill: { height: 6, borderRadius: 3 },
   dot: { width: 10, height: 10, borderRadius: 5 },
-});
+}));

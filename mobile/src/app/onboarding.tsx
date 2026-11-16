@@ -9,7 +9,7 @@ import { Icon } from '../components/Icon';
 import { Button, Checkbox, Chip, Field, Panel, Row, ScreenHeader, T } from '../components/ui';
 import { GYM_PRESETS, PROGRAMS } from '../engine/programs';
 import { storeAthlete } from '../storage/db';
-import { colors, space } from '../theme';
+import { colors, space, themed } from '../theme';
 
 
 const HEALTH_CONSENT =
@@ -78,7 +78,7 @@ export default function Onboarding() {
     <SafeAreaView style={styles.root}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <ScreenHeader overline="Project Knightfall" title="Seu perfil" />
+          <ScreenHeader overline="Kinetic" title="Seu perfil" />
 
           <Row style={{ alignItems: 'flex-end' }}>
             <Field label="Nome" value={name} onChangeText={setName} autoCapitalize="words" autoComplete="name"
@@ -158,9 +158,9 @@ export default function Onboarding() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
   option: { borderWidth: 1.5, borderColor: 'transparent' },
   optionOn: { borderColor: colors.accent },
-});
+}));

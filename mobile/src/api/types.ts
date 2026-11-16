@@ -73,3 +73,4 @@ export type RoutineItem = S['RoutineItemOut'];
 export type RoutineDay = S['RoutineDayOut'];
 export type RoutineOption = S['RoutineOptionOut'];
 export type RoutineCheck = S['RoutineCheckIn'];
+export type ExercisePreference = S['ExercisePreferenceOut'];

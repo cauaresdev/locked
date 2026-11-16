@@ -199,6 +199,7 @@ class Prescription(OutModel):
     last_set: LastSet | None = None
     best_e1rm_kg: float | None = Field(default=None, ge=0)  # all-time best estimate; external load only
     warmup_sets: list[WarmupSet] = Field(default_factory=list)  # ramp before the first heavy lift
+    amrap_last_set: bool = False  # the last set goes to technical failure (effort calibration, plateau.py)
 
     @model_validator(mode="after")
     def _check_mode_fields(self) -> Prescription:
@@ -249,5 +250,7 @@ class Session(OutModel):
     rest_cap_seconds: int
     readiness: ReadinessSummary | None = None
     deload: bool = False
+    meso_week: int | None = None  # splits: week of the mesocycle (1-based); the last is the deload
+    meso_length: int | None = None
     notices: list[str] = Field(default_factory=list)
     blocks: list[Block]

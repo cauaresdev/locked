@@ -14,11 +14,11 @@ import { isoDay, parseDecimal } from '../engine/format';
 import { MEAL_LABEL, entryFromProduct, portionAlerts } from '../engine/nutrition';
 import { cachedNutrition, enqueueFood, storedAthlete } from '../storage/db';
 import { flushNutrition } from '../sync';
-import { colors, radius, space } from '../theme';
+import { colors, radius, space, themed } from '../theme';
 
 const JALALI_MEALS: Meal[] = ['breakfast', 'post_workout', 'snack', 'dinner'];
-const LEVEL_COLOR = { red: colors.danger, amber: colors.warning, info: colors.textMuted } as const;
-const LEVEL_TEXT = { red: colors.danger, amber: colors.warning, info: colors.textMuted } as const;
+const LEVEL_COLOR = themed(() => ({ red: colors.danger, amber: colors.warning, info: colors.textMuted } as const));
+const LEVEL_TEXT = themed(() => ({ red: colors.danger, amber: colors.warning, info: colors.textMuted } as const));
 
 export default function Scan() {
   const router = useRouter();
@@ -117,7 +117,7 @@ export default function Scan() {
   return (
     <SafeAreaView style={styles.root}>
       <Row style={{ justifyContent: 'space-between', padding: space.lg }}>
-        <T variant="display" style={{ fontSize: 24, lineHeight: 30 }}>Scanner</T>
+        <T variant="display" style={{ fontSize: 30, lineHeight: 34 }}>Scanner</T>
         <Row style={{ gap: space.sm }}>
           {!code && (
             <Pressable onPress={() => setTorch((t) => !t)} hitSlop={8} accessibilityRole="switch"
@@ -195,7 +195,7 @@ export default function Scan() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   cameraWrap: { flex: 1, margin: space.lg, marginTop: 0, overflow: 'hidden', borderRadius: radius.lg },
   reticle: {
@@ -211,4 +211,4 @@ const styles = StyleSheet.create({
     width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surfaceHigh,
     alignItems: 'center', justifyContent: 'center',
   },
-});
+}));

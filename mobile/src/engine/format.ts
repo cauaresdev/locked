@@ -126,3 +126,11 @@ export function parseDecimal(s: string): number | null {
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
 }
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** "18:30" from what was typed: "18:30", "1830", "18h30" and "7:00" all work; null when it is not a time. */
+export function parseTime(text: string): string | null {
+  const t = text.trim().replace(/^(\d{1,2})h?(\d{2})$/, '$1:$2').replace(/^(\d):/, '0$1:');
+  return HHMM.test(t) ? t : null;
+}

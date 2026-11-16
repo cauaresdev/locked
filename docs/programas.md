@@ -1,10 +1,11 @@
 # Knightfall · Programas
 
 > Gerado por `backend/scripts/gen_programs_doc.py` a partir do motor de treino (`backend/knightfall/splits.py`):
-> as tabelas são a saída real do código para o **ciclo 1**, com o perfil de uma academia de máquinas (leg press,
-> hack, smith, extensora, flexora, panturrilha, abdutora/adutora, puxador, remada, supino máquina, voador, polia,
-> halteres, barra e cardio; **sem** desenvolvimento em máquina, kettlebell, trenó, trap bar, medicine ball, elástico
-> ou rolo) e prontidão verde. Sem histórico de cargas, por isso não há carga sugerida nem aquecimento calculado.
+> as tabelas são a saída real do código para a **semana 3 do primeiro mesociclo** (esforço alvo sem ajuste da
+> rampa), com o perfil de uma academia de máquinas (leg press, hack, smith, extensora, flexora, panturrilha,
+> abdutora/adutora, puxador, remada, supino máquina, voador, polia, halteres, barra e cardio; **sem** desenvolvimento
+> em máquina, kettlebell, trenó, trap bar, medicine ball, elástico ou rolo) e prontidão verde. Sem histórico de
+> cargas, por isso não há carga sugerida nem aquecimento calculado.
 
 ## Como os programas funcionam
 
@@ -14,9 +15,18 @@
   90 a 180 s de descanso e sem esforço alvo: cada repetição é máxima, e a série para quando a velocidade cai.
 - **48 h entre sprint e perna pesada.** Dias com sprint ou agilidade ficam a pelo menos dois dias do agachamento
   ou do terra pesado (um teste confere todos os programas).
-- **Básicos fixos, acessórios rodando.** O bloco Principal não muda entre ciclos; os acessórios trocam a cada ciclo.
-  No Conjugado, o exercício de esforço máximo alterna toda semana (supino e supino no chão; terra e box squat).
+- **Básicos fixos, acessórios por mesociclo.** O bloco Principal não muda entre ciclos; os acessórios ficam os mesmos
+  durante o mesociclo (os ciclos até o deload, inclusive) e trocam no seguinte, para a carga ter cinco semanas para
+  subir. No Conjugado, o exercício de esforço máximo alterna toda semana (supino e supino no chão; terra e box squat).
+- **Rampa de esforço.** Nas semanas de carga o esforço alvo vai de 1 ponto abaixo a 1 ponto acima do da tabela
+  (−1; −0,5; 0; +0,5; +1, nunca acima de 9,5) e a carga sugerida acompanha; depois vem o deload. O Conjugado fica
+  fora da rampa: o esforço máximo é máximo toda semana.
 - **Esforço alvo.** O RIR (repetições em reserva) do protocolo vira a escala do app: RIR 1 = esforço 9, RIR 2 = 8.
+- **Série de calibração.** Na última semana de carga, a última série do primeiro básico feito em máquina, smith,
+  leg press, hack ou polia vai até a falha técnica (esforço 10): corrige o 1RM estimado de quem erra o RPE.
+- **Estagnação.** Básico sem recorde em 3 treinos ganha um aviso (trocar a variação); dois ou mais parados juntos
+  sugerem antecipar o deload.
+- **Trocas fixas.** "Usar sempre esta troca" faz o substituto entrar no lugar do original nos próximos treinos.
 - **Top set + back-off** a 80% da carga do top set, onde o programa pede.
 - **Prontidão vermelha** corta as séries para 60% e tira o finalizador; **deload** a cada 6 ciclos.
 - **Programas semanais** (Armadura de Gotham, Functional Bodybuilding, Conjugado): o dia 1 é segunda-feira.

@@ -5,6 +5,7 @@ import type {
   ArmorLoad,
   AuthResult,
   EarlyBird,
+  ExercisePreference,
   FoodEntryInput,
   Measurements,
   MeasurementsInput,
@@ -143,6 +144,13 @@ export const api = {
   earlyBird: (id: string, day: string) => request<EarlyBird>(`/athletes/${id}/early-bird/${day}`),
   wake: (id: string, day: string, wokeAt: string) =>
     request<EarlyBird>(`/athletes/${id}/early-bird/${day}/wake`, json('PUT', { woke_at: wokeAt })),
+
+  exercisePreferences: (id: string) => request<ExercisePreference[]>(`/athletes/${id}/exercise-preferences`),
+  setExercisePreference: (id: string, exerciseId: string, replacementId: string) =>
+    request<ExercisePreference>(`/athletes/${id}/exercise-preferences/${exerciseId}`,
+      json('PUT', { replacement_id: replacementId })),
+  deleteExercisePreference: (id: string, exerciseId: string) =>
+    request<void>(`/athletes/${id}/exercise-preferences/${exerciseId}`, { method: 'DELETE' }),
 
   routine: (id: string, day: string) => request<Routine>(`/athletes/${id}/routine/${day}`),
   setRoutineItem: (id: string, day: string, item: string, body: RoutineCheck) =>

@@ -1,4 +1,4 @@
-import type { FoodEntryInput, SetLog } from '../api/types';
+import type { FoodEntryInput, Routine, SetLog } from '../api/types';
 
 type MockParams = (string | number | null)[];
 interface MockSqlite {
@@ -60,6 +60,7 @@ jest.mock('../api/client', () => {
       postFood: jest.fn(async () => ({})),
       deleteFood: jest.fn(async () => undefined),
       postTelemetry: jest.fn(async () => ({})),
+      setRoutineItem: jest.fn(async () => ({})),
     },
   };
 });
@@ -75,10 +76,12 @@ import {
   pendingFoodDeletes,
   pendingLogDeletes,
   pendingLogs,
+  pendingRoutineChecks,
   pendingTotal,
+  queueRoutineCheck,
   undoLog,
 } from '../storage/db';
-import { flushAll, flushNutrition, flushOutbox } from '../sync';
+import { flushAll, flushNutrition, flushOutbox, flushRoutine, withPendingChecks } from '../sync';
 /* eslint-enable import/first */
 
 const mocked = api as unknown as Record<keyof typeof api, jest.Mock>;
@@ -193,4 +196,36 @@ test('a food delete waits for the in-flight POST of the same entry', async () =>
   gate.resolve();
   await Promise.all([run, other]);
   expect(order).toEqual(['post', 'delete']);
+});
+
+describe('routine ticks made offline', () => {
+  const routine = {
+    day: '2026-11-06', done: 0, total: 2, complete: false, week: [],
+    items: [
+      { id: 'water', kind: 'water', done: false, auto: false, value: 0, target: 3000 },
+      { id: 'sunlight', kind: 'check', done: false, auto: false },
+    ],
+  } as unknown as Routine;
+
+  test('queue keeps the last tick per item and overlays the server state', () => {
+    queueRoutineCheck({ day: routine.day, item: 'water', body: { value: 250 } });
+    queueRoutineCheck({ day: routine.day, item: 'water', body: { value: 500 } });
+    queueRoutineCheck({ day: routine.day, item: 'sunlight', body: { done: true } });
+    expect(pendingRoutineChecks(routine.day)).toHaveLength(2);
+    const view = withPendingChecks(routine);
+    expect(view.items.map((i) => [i.id, i.done, i.value])).toEqual([['water', false, 500], ['sunlight', true, undefined]]);
+    expect(view.done).toBe(1);
+  });
+
+  test('flush sends them in order, drops refused ones and stops when offline', async () => {
+    queueRoutineCheck({ day: routine.day, item: 'water', body: { value: 500 } });
+    queueRoutineCheck({ day: routine.day, item: 'sunlight', body: { done: true } });
+    mocked.setRoutineItem.mockRejectedValueOnce(new ApiError(422, 'item off')).mockRejectedValueOnce(new TypeError('Network'));
+    expect(await flushRoutine('a1')).toBe(0);
+    expect(pendingRoutineChecks().map((c) => c.item)).toEqual(['sunlight']); // refused: gone; offline: kept
+    expect(await pendingTotal()).toBe(1);
+    await flushAll('a1');
+    expect(mocked.setRoutineItem).toHaveBeenLastCalledWith('a1', routine.day, 'sunlight', { done: true });
+    expect(pendingRoutineChecks()).toEqual([]);
+  });
 });

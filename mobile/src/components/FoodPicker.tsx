@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../api/client';
 import type { Dairy, FoodEntryInput, Meal, Staple } from '../api/types';
 import { MEAL_LABEL, entryFromStaple } from '../engine/nutrition';
-import { colors, space } from '../theme';
+import { colors, space, themed } from '../theme';
 import { Icon } from './Icon';
 import { Badge, Button, Chip, Divider, Field, Panel, Row, T } from './ui';
 
@@ -49,7 +49,7 @@ export function FoodPicker({
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet">
       <SafeAreaView style={styles.root}>
         <Row style={{ justifyContent: 'space-between', padding: space.lg }}>
-          <T variant="display" style={{ fontSize: 24, lineHeight: 30 }}>{MEAL_LABEL[meal]}</T>
+          <T variant="display" style={{ fontSize: 30, lineHeight: 34 }}>{MEAL_LABEL[meal]}</T>
           <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Fechar"
             style={styles.close}>
             <Icon name="close" size={20} color={colors.text} />
@@ -140,7 +140,7 @@ export function FoodPicker({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: space.lg, gap: space.md },
   close: {
@@ -151,4 +151,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-});
+}));
