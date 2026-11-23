@@ -6,7 +6,7 @@ import { cardShadow, colors, radius, themed } from '../theme';
 
 /**
  * A card whose background is a photo, darkened toward the bottom so white text on it stays legible
- * in both schemes. Without a photo it is a solid accent card (the same text still reads on it).
+ * in both schemes. Without a photo it is a solid near-black card (the same text still reads on it).
  */
 export function PhotoCover({
   source,
@@ -31,7 +31,7 @@ export function PhotoCover({
       }
     : null;
   return (
-    <View style={[styles.card, { minHeight: height }, !source && { backgroundColor: colors.accent }, style]}>
+    <View style={[styles.card, { minHeight: height }, style]}>
       {source && (
         <>
           <Animated.Image source={source} resizeMode="cover" accessible={false} accessibilityIgnoresInvertColors
@@ -53,7 +53,7 @@ export function PhotoCover({
   );
 }
 
-/** Text and icon color on a PhotoCover (always light: the photo is darkened, the fallback is blue). */
+/** Text and icon color on a PhotoCover (always light: the photo is darkened, the fallback is near-black). */
 export const ON_PHOTO = '#FFFFFF';
 const PARALLAX = 48; // photo overflow above and below the card, used up by the drift
 export const ON_PHOTO_MUTED = 'rgba(255,255,255,0.78)';

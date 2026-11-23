@@ -1,9 +1,11 @@
 import Storage from 'expo-sqlite/kv-store';
-import { Appearance } from 'react-native';
+import { Appearance, type TextStyle } from 'react-native';
 
-// Minimal palette in two schemes: white + blue (light) and dark gray + blue (dark). Surfaces separate
-// by fill, not borders. One accent (blue) marks the primary action; success / warning / danger carry
-// state only.
+// The BatStudy look ("Minimal", sand beige): neutral grays carry the screen and the cards, and sand
+// beige is the second color. Surfaces separate by fill, not borders. In the dark scheme one beige does
+// everything (primary button, progress, selection, secondary text); in the light one the primary
+// button stays beige and a bronze takes progress and selection, which need contrast on white.
+// Warnings are orange so they never read as beige; success / warning / danger carry state only.
 type Palette = {
   bg: string; // screen background
   surface: string; // cards
@@ -12,8 +14,10 @@ type Palette = {
   text: string; // primary text
   textMuted: string; // secondary text (≥ 4.5:1 on surface)
   textFaint: string; // non-essential text only
-  accent: string; // primary action fill, current-day marker, links
+  accent: string; // progress, selection, current-day marker, links, accent text (≥ 4.5:1 on surface)
   onAccent: string; // text on accent
+  primary: string; // the screen's main button
+  onPrimary: string; // text on primary
   success: string; // completed / improving
   warning: string; // alerts, locks, offline
   danger: string; // errors, readiness red, destructive actions (text and fills)
@@ -28,40 +32,44 @@ export type ThemePreference = 'system' | Scheme;
 
 const palettes: Record<Scheme, Palette> = {
   light: {
-    bg: '#F1F4F9',
+    bg: '#F4F4F5',
     surface: '#FFFFFF',
-    surfaceHigh: '#E9EDF4',
-    border: '#DCE2EB',
-    text: '#0F172A',
-    textMuted: '#556072',
-    textFaint: '#8892A3',
-    accent: '#2563EB',
+    surfaceHigh: '#EBEBED',
+    border: '#E4E4E7',
+    text: '#18181B',
+    textMuted: '#5E5547', // beige-gray, 7.3:1
+    textFaint: '#63636B',
+    accent: '#7A5A2E', // bronze, 6.3:1
     onAccent: '#FFFFFF',
-    success: '#15803D',
-    warning: '#C2410C',
-    danger: '#DC2626',
-    dangerFill: '#FDECEC',
-    warningFill: '#FFF1E7',
-    shadow: '#1E293B',
-    scrim: '#0B1220',
+    primary: '#DCC8A6', // sand; dark text 10.8:1
+    onPrimary: '#18181B',
+    success: '#067A40',
+    warning: '#B4470E',
+    danger: '#C62828',
+    dangerFill: '#FBEAEA',
+    warningFill: '#FBEFE8',
+    shadow: '#101014',
+    scrim: '#0F0F11',
   },
   dark: {
-    bg: '#0F1115',
-    surface: '#181B21',
-    surfaceHigh: '#23272F',
-    border: '#2D323B',
-    text: '#F3F5F8',
-    textMuted: '#A4ACBA',
-    textFaint: '#6F7787',
-    accent: '#3B82F6',
-    onAccent: '#FFFFFF',
-    success: '#34D399',
-    warning: '#FB923C',
+    bg: '#0F0F11',
+    surface: '#19191C',
+    surfaceHigh: '#222226',
+    border: '#2A2A2F',
+    text: '#EDEDEF',
+    textMuted: '#B9AE9C', // beige-gray, 8.0:1
+    textFaint: '#8E8E97',
+    accent: '#E2D3B8', // sand, 11.9:1
+    onAccent: '#0F0F11',
+    primary: '#E2D3B8',
+    onPrimary: '#0F0F11',
+    success: '#3EE68B',
+    warning: '#FB8C3C',
     danger: '#F87171',
-    dangerFill: '#2A1517',
-    warningFill: '#2A1D12',
+    dangerFill: '#2A1718',
+    warningFill: '#2A1D13',
     shadow: '#000000',
-    scrim: '#05070A',
+    scrim: '#0F0F11',
   },
 };
 
@@ -150,17 +158,38 @@ export function themed<T extends object>(factory: () => T): T {
   });
 }
 
-// Screen titles and big numbers use the system face, bold, with tabular figures for numbers. The
-// monospace face stays for timers and plate math only.
+// All text is Inter (as in BatStudy), with tabular figures for numbers. The monospace face stays for
+// timers and plate math only.
 export const fonts = {
-  display: 'BarlowCondensed_700Bold',
+  regular: 'Inter_400Regular',
+  medium: 'Inter_500Medium',
+  semibold: 'Inter_600SemiBold',
+  bold: 'Inter_700Bold',
   mono: 'JetBrainsMono_400Regular',
   monoBold: 'JetBrainsMono_700Bold',
 } as const;
 
+const INTER_BY_WEIGHT: Record<string, string> = {
+  '100': fonts.regular, '200': fonts.regular, '300': fonts.regular, '400': fonts.regular, normal: fonts.regular,
+  '500': fonts.medium,
+  '600': fonts.semibold,
+  '700': fonts.bold, '800': fonts.bold, '900': fonts.bold, bold: fonts.bold,
+};
+
+/**
+ * Turns a text style's fontWeight into the matching Inter file. Each weight is its own font family,
+ * and a fontWeight left on a custom family makes Android fall back to a synthesized face, so the
+ * weight is dropped once the family is set. A style that names its own family (mono) is left alone.
+ */
+export function withInter(style: TextStyle | undefined): TextStyle {
+  if (style?.fontFamily) return style;
+  const { fontWeight, ...rest } = style ?? {};
+  return { ...rest, fontFamily: INTER_BY_WEIGHT[String(fontWeight ?? '400')] ?? fonts.regular };
+}
+
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 
-export const radius = { sm: 10, md: 14, lg: 20, xl: 26, pill: 999 } as const;
+export const radius = { sm: 10, md: 14, lg: 20, xl: 24, pill: 999 } as const;
 
 export const levelColor = themed(() => ({
   green: colors.success,

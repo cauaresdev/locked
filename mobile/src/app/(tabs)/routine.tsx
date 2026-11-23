@@ -182,7 +182,7 @@ export default function RoutineScreen() {
           overline="Rotina Batfleck"
           title="Rotina"
           right={routine && routine.streak > 0
-            ? <Badge label={`${routine.streak} ${routine.streak === 1 ? 'dia' : 'dias'} seguidos`} color={colors.success} />
+            ? <Badge label={`${routine.streak} ${routine.streak === 1 ? 'dia' : 'dias'} em sequência`} />
             : undefined}
         />
 
@@ -207,7 +207,7 @@ export default function RoutineScreen() {
                   <T variant="label">{summary?.headline}</T>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                  <T variant="label">Recorde</T>
+                  <T variant="label">Maior sequência</T>
                   <T variant="title">{routine.best_streak} {routine.best_streak === 1 ? 'dia' : 'dias'}</T>
                 </View>
               </Row>

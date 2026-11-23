@@ -169,7 +169,7 @@ export default function EarlyBirdScreen() {
       >
         <TextLink label="‹ Rotina" onPress={() => router.navigate('/routine')} accessibilityLabel="Voltar para a Rotina" />
         <ScreenHeader overline="Gotham Early Bird" title="Manhã"
-          right={eb && eb.streak > 0 ? <Badge label={`${eb.streak} dias seguidos`} color={colors.success} /> : undefined} />
+          right={eb && eb.streak > 0 ? <Badge label={`${eb.streak} ${eb.streak === 1 ? 'dia' : 'dias'} em sequência`} /> : undefined} />
 
         <Panel style={{ gap: space.md }}>
           <Row style={{ justifyContent: 'space-between' }}>

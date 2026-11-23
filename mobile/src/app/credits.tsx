@@ -11,7 +11,7 @@ const open = (url: string) => () => { void Linking.openURL(url); };
 
 const FONTS = [
   { name: 'JetBrains Mono', by: 'JetBrains', url: 'https://github.com/JetBrains/JetBrainsMono' },
-  { name: 'Barlow Condensed', by: 'Jeremy Tribby', url: 'https://github.com/jpt/barlow' },
+  { name: 'Inter', by: 'Rasmus Andersson', url: 'https://github.com/rsms/inter' },
 ];
 const OFL = 'https://openfontlicense.org/open-font-license-official-text/';
 

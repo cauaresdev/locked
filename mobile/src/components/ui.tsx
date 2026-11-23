@@ -5,8 +5,7 @@ import {
   Easing,
   Pressable,
   StyleSheet,
-  Text,
-  TextInput,
+  type TextInput as RNTextInput,
   View,
   type StyleProp,
   type TextInputProps,
@@ -18,8 +17,8 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { cardShadow, colors, radius, scheme, space, themed } from '../theme';
 import { Icon, type IconName } from './Icon';
 import { ms, reduceMotion } from './motion';
+import { Text, TextInput } from './Text';
 import { toast } from './Toast';
-
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -263,7 +262,7 @@ export function Button({
   const { scale, onPressIn, onPressOut } = usePressScale(0.96);
   const primary = tone === 'primary';
   const danger = tone === 'danger' || tone === 'alert';
-  const fg = primary ? colors.onAccent : danger ? colors.danger : colors.text;
+  const fg = primary ? colors.onPrimary : danger ? colors.danger : colors.text;
   return (
     <AnimatedPressable
       accessibilityRole="button"
@@ -297,7 +296,7 @@ export function Badge({ label, color = colors.textMuted }: { label: string; colo
   );
 }
 
-export function Field({ label, ref, ...props }: TextInputProps & { label: string; ref?: Ref<TextInput> }) {
+export function Field({ label, ref, ...props }: TextInputProps & { label: string; ref?: Ref<RNTextInput> }) {
   return (
     <View style={{ gap: space.xs, flex: 1 }}>
       {/* The input carries the label itself; the visible one would be read twice. */}
@@ -338,8 +337,8 @@ export function Chip({
   const was = useRef(selected);
   useEffect(() => {
     if (selected && !was.current && !reduceMotion()) {
-      pop.setValue(0.88);
-      Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 14 }).start();
+      pop.setValue(0.96);
+      Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 3 }).start();
     }
     was.current = selected;
   }, [selected, pop]);
@@ -382,8 +381,8 @@ export function Checkbox({
   const toggle = () => {
     Haptics.selectionAsync().catch(() => {});
     if (!checked && !reduceMotion()) {
-      pop.setValue(0.6);
-      Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 14 }).start();
+      pop.setValue(0.85);
+      Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 3 }).start();
     }
     onChange(!checked);
   };
@@ -502,17 +501,17 @@ function Dot({ on, color }: { on: boolean; color: string }) {
       return;
     }
     if (!on || reduceMotion()) return;
-    scale.setValue(1.8);
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 12 }).start();
+    scale.setValue(1.3);
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 2 }).start();
   }, [on, scale]);
   return <Animated.View style={[styles.dot, { backgroundColor: on ? color : colors.surfaceHigh, transform: [{ scale }] }]} />;
 }
 
-/** Content that pops in on mount: a check that just appeared, a badge just earned. */
+/** Content that settles in on mount (a check that just appeared): a short, firm scale, no bounce. */
 export function PopIn({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
-  const scale = useState(() => new Animated.Value(reduceMotion() ? 1 : 0.4))[0];
+  const scale = useState(() => new Animated.Value(reduceMotion() ? 1 : 0.9))[0];
   useEffect(() => {
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 12 }).start();
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 2 }).start();
   }, [scale]);
   return <Animated.View style={[{ transform: [{ scale }] }, style]}>{children}</Animated.View>;
 }
@@ -578,7 +577,7 @@ export function Row({ children, style }: { children: ReactNode; style?: StylePro
 }
 
 const styles = themed(() => StyleSheet.create({
-  // The display face carries its own weight: a fontWeight on a custom family breaks it on Android.
+  // fontWeight here picks the Inter file (see withInter in theme.ts).
   display: { fontSize: 30, fontWeight: '700', color: colors.text, letterSpacing: -0.4, lineHeight: 36 },
   title: { fontSize: 17, fontWeight: '600', color: colors.text, lineHeight: 23 },
   body: { fontSize: 15, color: colors.text, lineHeight: 21 },
@@ -598,8 +597,8 @@ const styles = themed(() => StyleSheet.create({
   button: {
     flexDirection: 'row',
     gap: space.sm,
-    backgroundColor: colors.accent,
-    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
     paddingVertical: space.md + 2,
     paddingHorizontal: space.lg,
     alignItems: 'center',

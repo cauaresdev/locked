@@ -2,7 +2,7 @@
   "expo": {
     "name": "Kinetic",
     "slug": "knightfall",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -17,14 +17,14 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0B0B0D",
+        "backgroundColor": "#14171D",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "dev.knightfall.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": [
         "android.permission.health.READ_HEART_RATE_VARIABILITY",
         "android.permission.health.READ_SLEEP",
@@ -40,13 +40,14 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withReleaseSigning",
       [
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
           "imageWidth": 140,
           "resizeMode": "contain",
-          "backgroundColor": "#0B0B0D"
+          "backgroundColor": "#0F0F11"
         }
       ],
       [
@@ -76,7 +77,7 @@
       [
         "expo-notifications",
         {
-          "color": "#D97706",
+          "color": "#E2D3B8",
           "sounds": [
             "./assets/sounds/alarm.wav",
             "./assets/sounds/rest.wav",
@@ -118,7 +119,7 @@
       ]
     ],
     "scheme": "knightfall",
-    "backgroundColor": "#0A0A0B",
+    "backgroundColor": "#0F0F11",
     "experiments": {
       "typedRoutes": true
     }

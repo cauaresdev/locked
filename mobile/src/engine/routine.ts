@@ -39,7 +39,7 @@ export function withCheck(r: Routine, itemId: string, check: RoutineCheck): Rout
 
 export function routineSummary(r: Routine): { headline: string; remaining: number } {
   const needed = Math.max(0, Math.ceil(r.total * COMPLETE_SHARE - 1e-9) - r.done);
-  if (r.done === r.total && r.total > 0) return { headline: 'Rotina completa. Nível Batman.', remaining: 0 };
+  if (r.done === r.total && r.total > 0) return { headline: 'Rotina completa.', remaining: 0 };
   if (r.complete) return { headline: 'Dia cumprido. Feche o resto se der.', remaining: 0 };
   return { headline: `Faltam ${needed} para cumprir o dia`, remaining: needed };
 }

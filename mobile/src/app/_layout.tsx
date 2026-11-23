@@ -1,4 +1,4 @@
-import { BarlowCondensed_700Bold } from '@expo-google-fonts/barlow-condensed';
+import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { JetBrainsMono_400Regular, JetBrainsMono_700Bold, useFonts } from '@expo-google-fonts/jetbrains-mono';
 import { setAudioModeAsync } from 'expo-audio';
 import * as Notifications from 'expo-notifications';
@@ -43,7 +43,9 @@ function RootLayout() {
   const scheme = resolveScheme(system);
   applyScheme(scheme);
   void pref; // read so a preference change re-renders the root
-  const [loaded, error] = useFonts({ JetBrainsMono_400Regular, JetBrainsMono_700Bold, BarlowCondensed_700Bold });
+  const [loaded, error] = useFonts({
+    Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, JetBrainsMono_400Regular, JetBrainsMono_700Bold,
+  });
 
   useEffect(() => {
     // Cues and voice play over the user's own music instead of stopping it.
@@ -91,7 +93,7 @@ function RootLayout() {
           }}
         >
           <Stack.Screen name="scan" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="achievements" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="history" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="credits" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="session/[day]" options={{ animation: 'slide_from_right' }} />
         </Stack>

@@ -1,14 +1,13 @@
 import {
+  adherence,
   bestStreak,
-  medalStates,
   mergeAttendance,
-  newlyEarned,
   perfectWeeks,
   personalRecords,
   trainingStreak,
   weekOf,
   type AttendanceDay,
-} from '../achievements';
+} from '../attendance';
 
 const d = (day: string, planned: boolean, trained: boolean): AttendanceDay => ({ day, planned, trained });
 
@@ -56,14 +55,10 @@ test('records count each time an exercise beats its own best', () => {
   expect(personalRecords(strength)).toBe(1);
 });
 
-test('medals stay earned and report progress toward the goal', () => {
-  const stats = { sessions: 12, bestStreak: 2, perfectWeeks: 0, records: 1, routineStreak: 0 };
-  const fresh = newlyEarned(stats, {}).map((m) => m.id);
-  expect(fresh).toEqual(['first_session', 'sessions_10', 'first_pr']);
-  expect(newlyEarned(stats, { first_session: '2026-11-01', sessions_10: '2026-11-01', first_pr: 'x' })).toEqual([]);
-  const states = medalStates({ ...stats, sessions: 0 }, { first_session: '2026-11-01' });
-  expect(states.find((s) => s.medal.id === 'first_session')?.unlocked).toBe(true);
-  expect(states.find((s) => s.medal.id === 'sessions_25')?.value).toBe(0);
+test('adherence counts planned sessions done in the window, leaving today out', () => {
+  expect(adherence(days, '2026-11-14', 90)).toEqual({ done: 8, planned: 9, rate: 8 / 9 }); // the 3rd was missed
+  expect(adherence(days, '2026-11-14', 3)).toEqual({ done: 2, planned: 2, rate: 1 }); // 11th–13th: the 11th is rest
+  expect(adherence([], '2026-11-14', 90)).toBeNull();
 });
 
 test('saved history keeps trained days the report window no longer covers', () => {
