@@ -1,11 +1,12 @@
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, space, themed } from '../theme';
 import { Icon, type IconName } from './Icon';
 import { ms, reduceMotion } from './motion';
+import { Text } from './Text';
 
 type Tone = 'error' | 'info' | 'success';
 type Message = { id: number; title: string; body?: string; tone: Tone };

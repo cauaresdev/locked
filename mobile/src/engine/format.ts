@@ -19,6 +19,21 @@ export function addDays(day: string, n: number): string {
   return isoDay(new Date(y, m - 1, d + n));
 }
 
+const WEEKDAY = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+const MONTH = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro',
+  'novembro', 'dezembro'];
+
+/** "segunda, 23 de novembro" for an ISO day. */
+export function longDate(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return `${WEEKDAY[new Date(y, m - 1, d).getDay()]}, ${d} de ${MONTH[m - 1]}`;
+}
+
+/** Bom dia / Boa tarde / Boa noite for an hour of the day. */
+export function greeting(hour: number): string {
+  return hour >= 5 && hour < 12 ? 'Bom dia' : hour >= 12 && hour < 18 ? 'Boa tarde' : 'Boa noite';
+}
+
 function volume(rx: Prescription): string {
   const range = (n: number) => (rx.reps_max && rx.reps_max > n ? `${n}–${rx.reps_max}` : String(n));
   if (rx.reps_sequence) return rx.reps_sequence.join('-');

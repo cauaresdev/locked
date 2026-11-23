@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { Prescription } from '../api/types';
 import { loadsPlates, platesPerSide, repeatLabel, rpeRequired, type LoggedSet } from '../engine/athlete';
@@ -9,6 +9,7 @@ import { useCountdown } from '../hooks/useCountdown';
 import { useCues } from '../hooks/useCues';
 import { useMetronome } from '../hooks/useMetronome';
 import { colors, radius, space, themed } from '../theme';
+import { Text } from './Text';
 import { Button, Field, Panel, Row, T } from './ui';
 
 export interface SetResult {

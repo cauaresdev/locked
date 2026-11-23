@@ -1,4 +1,3 @@
-import type { IconName } from '../components/Icon';
 import { addDays } from './format';
 
 /** One day of the training calendar: was a session planned, and was it done. */
@@ -70,57 +69,24 @@ export function personalRecords(strength: { history: [string, number][] }[]): nu
   return n;
 }
 
+/**
+ * Share of planned sessions done over the last `windowDays` days up to yesterday (today's session
+ * may still be ahead). Null when nothing was planned in the window.
+ */
+export function adherence(days: AttendanceDay[], today: string, windowDays: number): { done: number; planned: number; rate: number } | null {
+  const from = addDays(today, -windowDays);
+  const past = days.filter((d) => d.planned && d.day >= from && d.day < today);
+  if (past.length === 0) return null;
+  const done = past.filter((d) => d.trained).length;
+  return { done, planned: past.length, rate: done / past.length };
+}
+
 export interface Stats {
   sessions: number;
+  streak: number;
   bestStreak: number;
   perfectWeeks: number;
   records: number;
-  routineStreak: number;
-}
-
-export interface Medal {
-  id: string;
-  title: string;
-  description: string;
-  icon: IconName;
-  goal: number;
-  stat: keyof Stats;
-}
-
-export const MEDALS: Medal[] = [
-  { id: 'first_session', title: 'Primeira sessão', description: 'Conclua seu primeiro treino.', icon: 'play', goal: 1, stat: 'sessions' },
-  { id: 'sessions_10', title: '10 treinos', description: 'Conclua 10 treinos.', icon: 'dumbbell', goal: 10, stat: 'sessions' },
-  { id: 'sessions_25', title: '25 treinos', description: 'Conclua 25 treinos.', icon: 'dumbbell', goal: 25, stat: 'sessions' },
-  { id: 'sessions_50', title: '50 treinos', description: 'Conclua 50 treinos.', icon: 'trophy', goal: 50, stat: 'sessions' },
-  { id: 'streak_3', title: 'Embalado', description: '3 treinos seguidos sem faltar.', icon: 'flame', goal: 3, stat: 'bestStreak' },
-  { id: 'streak_7', title: 'Constante', description: '7 treinos seguidos sem faltar.', icon: 'flame', goal: 7, stat: 'bestStreak' },
-  { id: 'streak_15', title: 'Inabalável', description: '15 treinos seguidos sem faltar.', icon: 'flame', goal: 15, stat: 'bestStreak' },
-  { id: 'perfect_week', title: 'Semana perfeita', description: 'Todos os treinos de uma semana.', icon: 'star', goal: 1, stat: 'perfectWeeks' },
-  { id: 'perfect_4', title: 'Mês perfeito', description: '4 semanas perfeitas.', icon: 'star', goal: 4, stat: 'perfectWeeks' },
-  { id: 'first_pr', title: 'Primeiro recorde', description: 'Supere sua melhor marca em um exercício.', icon: 'bolt', goal: 1, stat: 'records' },
-  { id: 'pr_10', title: 'Quebra-recordes', description: '10 recordes pessoais.', icon: 'medal', goal: 10, stat: 'records' },
-  { id: 'routine_7', title: 'Rotina de ferro', description: '7 dias seguidos de rotina completa.', icon: 'moon', goal: 7, stat: 'routineStreak' },
-];
-
-export interface MedalState {
-  medal: Medal;
-  value: number;
-  unlocked: boolean;
-  unlockedOn: string | null;
-}
-
-/** Every medal with its progress. Once unlocked, a medal stays unlocked (`earned` remembers it). */
-export function medalStates(stats: Stats, earned: Record<string, string>): MedalState[] {
-  return MEDALS.map((medal) => {
-    const value = Math.min(stats[medal.stat], medal.goal);
-    const unlockedOn = earned[medal.id] ?? null;
-    return { medal, value, unlocked: unlockedOn != null || value >= medal.goal, unlockedOn };
-  });
-}
-
-/** Medals reached now that were not earned before. */
-export function newlyEarned(stats: Stats, earned: Record<string, string>): Medal[] {
-  return MEDALS.filter((m) => !(m.id in earned) && stats[m.stat] >= m.goal);
 }
 
 /** The week so far: sessions planned and done, Monday to Sunday. */

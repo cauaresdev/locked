@@ -9,10 +9,8 @@ import type { ArmorLoad, Block, Routine, Session, StrengthEntry, Weight } from '
 import { ExerciseThumb, sessionCover } from '../../components/ExerciseDemo';
 import { ON_PHOTO, ON_PHOTO_MUTED, PhotoCover } from '../../components/PhotoCover';
 import { LiveHr } from '../../components/LiveHr';
-import { MedalUnlocked } from '../../components/MedalUnlocked';
-import { Flame, ProgressRing } from '../../components/Rings';
-import { MEDALS, weekGoal, weekOf, type Medal } from '../../engine/achievements';
-import { statsOf, updateAchievements } from '../../engine/achievementsStore';
+import { adherence, weekGoal, weekOf, type AttendanceDay } from '../../engine/attendance';
+import { statsOf, updateAttendance } from '../../engine/attendanceStore';
 import { useToday } from '../../hooks/useToday';
 import {
   Badge,
@@ -34,7 +32,7 @@ import { Icon, type IconName } from '../../components/Icon';
 import { toast } from '../../components/Toast';
 import { routineSummary } from '../../engine/routine';
 import { BUDGET_OPTIONS, estimateMinutes, fitToBudget } from '../../engine/timeBudget';
-import { addDays, cycleStructureLabel, decimal, formatKgM, parseDecimal as num, rxSummary } from '../../engine/format';
+import { addDays, cycleStructureLabel, decimal, formatKgM, greeting, longDate, parseDecimal as num, rxSummary } from '../../engine/format';
 import { applySwaps, blockComplete, emptyProgress, itemKey, type Progress } from '../../engine/progress';
 import { PROGRAM_NAME } from '../../engine/programs';
 import { syncNight, syncSteps } from '../../health';
@@ -51,8 +49,8 @@ import {
   sessionCacheEpoch,
   setTimeBudget,
   storeAthlete,
-  storedAchievements,
   storedAthlete,
+  storedAttendance,
   storeRoutine,
   timeBudget,
 } from '../../storage/db';
@@ -87,9 +85,8 @@ export default function Today() {
   const [error, setError] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(() => timeBudget(today));
   const [dayProgress, setDayProgress] = useState<Progress>(emptyProgress);
-  const [achievements, setAchievements] = useState(() => storedAchievements());
+  const [attendance, setAttendance] = useState(() => storedAttendance());
   const [weekPlan, setWeekPlan] = useState<Set<string>>(new Set());
-  const [celebrate, setCelebrate] = useState<Medal[]>([]);
   const [showBudget, setShowBudget] = useState(false);
   const [readinessOpen, setReadinessOpen] = useState<boolean | null>(null); // null: follow the level
 
@@ -163,7 +160,7 @@ export default function Today() {
           return ok;
         }),
         api.armorLoad(athleteId, today).catch(() => null),
-        api.progress(athleteId, 90).catch(() => null), // training calendar and records, for streak and medals
+        api.progress(athleteId, 90).catch(() => null), // training calendar and records, for attendance
         api.weight(athleteId, 14).catch(() => null),
         refreshAthlete(athleteId),
         // Steps from the watch go up with the routine they tick; without health sync, just the routine.
@@ -197,10 +194,7 @@ export default function Today() {
       const week = weekOf(today);
       const weekSessions = await cachedRange(week);
       setWeekPlan(new Set(week.filter((d) => weekSessions[d]?.is_training_day)));
-      const { store, newly } = updateAchievements(report, today, todayProgress.finishedAt != null,
-        routineRes?.streak ?? 0);
-      setAchievements(store);
-      if (newly.length) setCelebrate(newly);
+      setAttendance(updateAttendance(report, today, todayProgress.finishedAt != null));
       // Offer a make-up only before today's session has started, and not after "Seguir o calendário".
       const dismissed = Storage.getItemSync(DISMISSED_KEY) === today;
       setMissed(todayProgress.startedAt == null && !dismissed ? (missedRes?.missed ?? []) : []);
@@ -271,8 +265,12 @@ export default function Today() {
       >
         <Row style={styles.header}>
           <View style={{ flex: 1, gap: 2 }}>
-            <T variant="display" accessibilityRole="header">Olá, {hello}!</T>
-            <T variant="hint">{PROGRAM_NAME[athlete.tier]}{session?.is_training_day === false ? ' · dia de recuperar' : ' · bora treinar'}</T>
+            <T variant="tag">{longDate(today)}</T>
+            <T variant="display" accessibilityRole="header">{greeting(new Date().getHours())}, {hello}.</T>
+            <T variant="hint">
+              {PROGRAM_NAME[athlete.tier]}
+              {session ? (session.is_training_day ? ' · dia de treino' : ' · dia de recuperação') : ''}
+            </T>
           </View>
           {/* Sync runs on its own; only what needs the athlete's attention shows up here. */}
           <View style={styles.status}>
@@ -355,11 +353,10 @@ export default function Today() {
               <WeekCard
                 today={today}
                 planned={weekPlan}
-                attendance={achievements.attendance}
+                attendance={attendance.attendance}
                 finishedToday={dayProgress.finishedAt != null}
-                streak={statsOf(achievements, today, routine?.streak ?? 0).streak}
-                earned={Object.keys(achievements.earned).length}
-                onOpen={() => router.push('/achievements')}
+                streak={statsOf(attendance, today).streak}
+                onOpen={() => router.push('/history')}
               />
             </FadeIn>
 
@@ -461,13 +458,6 @@ export default function Today() {
           </FadeIn>
         )}
       </Animated.ScrollView>
-      {celebrate.length > 0 && (
-        <MedalUnlocked medals={celebrate} onClose={() => setCelebrate([])}
-          onOpenAll={() => {
-            setCelebrate([]);
-            router.push('/achievements');
-          }} />
-      )}
     </SafeAreaView>
   );
 }
@@ -475,14 +465,16 @@ export default function Today() {
 const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 const initial = (name: string) => name.trim().charAt(0).toUpperCase() || '?';
 
-/** The week at a glance: a ring of sessions done out of planned, the streak and the medals. */
-function WeekCard({ today, planned, attendance, finishedToday, streak, earned, onOpen }: {
+/**
+ * The week as a ledger: one segment per planned session (filled when done), the count, and the
+ * 90-day adherence behind it. Opens the full history.
+ */
+function WeekCard({ today, planned, attendance, finishedToday, streak, onOpen }: {
   today: string;
   planned: Set<string>;
-  attendance: { day: string; planned: boolean; trained: boolean }[];
+  attendance: AttendanceDay[];
   finishedToday: boolean;
   streak: number;
-  earned: number;
   onOpen: () => void;
 }) {
   const week = weekOf(today);
@@ -490,31 +482,30 @@ function WeekCard({ today, planned, attendance, finishedToday, streak, earned, o
   const trained = new Set(attendance.filter((d) => d.trained).map((d) => d.day));
   if (finishedToday) trained.add(today);
   const { planned: goal, done } = weekGoal(week, plannedDays, trained);
-  const left = Math.max(0, goal - done);
-  const complete = goal > 0 && done >= goal;
+  const rate = adherence(attendance, today, 90);
+  const pct = rate ? Math.round(rate.rate * 100) : null;
+  const facts = [pct != null ? `Assiduidade em 90 dias: ${pct}%` : null, streak > 0 ? `${streak} em sequência` : null]
+    .filter(Boolean).join(' · ');
   return (
-    <Tappable onPress={onOpen} accessibilityLabel={`Semana: ${done} de ${goal} treinos. Sequência de ${streak}. ${earned} conquistas. Abrir conquistas`}>
-      <Panel style={styles.week}>
-        <ProgressRing value={goal ? done / goal : 0} size={76} stroke={8} color={complete ? colors.success : colors.accent}>
-          <T variant="title" style={{ fontSize: 18 }}>{done}/{goal}</T>
-        </ProgressRing>
-        <View style={{ flex: 1, gap: 4 }}>
-          <T variant="tag">Meta da semana</T>
-          <T variant="title">
-            {goal === 0 ? 'Semana sem treinos' : complete ? 'Semana cumprida!' : `Faltam ${left} ${left === 1 ? 'treino' : 'treinos'}`}
-          </T>
-          <Row style={{ gap: space.md }}>
-            <Row style={{ gap: 4 }}>
-              <Flame alive={streak > 0} size={18} />
-              <T variant="label" color={streak > 0 ? colors.text : colors.textMuted}>{streak} seguidos</T>
-            </Row>
-            <Row style={{ gap: 4 }}>
-              <Icon name="trophy" size={16} color={colors.accent} />
-              <T variant="label">{earned}/{MEDALS.length}</T>
-            </Row>
+    <Tappable onPress={onOpen}
+      accessibilityLabel={`Semana: ${done} de ${goal} sessões. ${facts}. Abrir o histórico`}>
+      <Panel style={{ gap: space.md }}>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <T variant="tag">Semana</T>
+          <Icon name="chevron-right" size={18} color={colors.textFaint} />
+        </Row>
+        <Row style={{ alignItems: 'baseline', gap: space.xs }}>
+          <T variant="metric">{done}</T>
+          <T variant="label">{goal === 0 ? 'sem sessões planejadas' : `de ${goal} ${goal === 1 ? 'sessão' : 'sessões'}`}</T>
+        </Row>
+        {goal > 0 && (
+          <Row style={{ gap: 4 }}>
+            {Array.from({ length: Math.max(goal, done) }, (_, i) => (
+              <View key={i} style={[styles.segment, { backgroundColor: i < done ? colors.accent : colors.surfaceHigh }]} />
+            ))}
           </Row>
-        </View>
-        <Icon name="chevron-right" size={18} color={colors.textFaint} />
+        )}
+        {facts ? <T variant="hint">{facts}</T> : null}
       </Panel>
     </Tappable>
   );
@@ -896,9 +887,6 @@ function RoutineTile({ routine, onPress }: { routine: Routine; onPress: () => vo
       <Row style={{ alignItems: 'baseline', gap: 2 }}>
         <CountUp value={routine.done} color={routine.complete ? colors.success : undefined} />
         <T variant="label">/{routine.total}</T>
-        {routine.streak > 0 && (
-          <T variant="label" color={colors.success} style={{ marginLeft: 'auto' }}>{routine.streak}d seguidos</T>
-        )}
       </Row>
       <T variant="label" numberOfLines={1}>{routine.complete ? 'Rotina completa' : next ? next.title : routineSummary(routine).headline}</T>
       <ProgressBar value={routine.total ? routine.done / routine.total : 0} color={color} />
@@ -935,5 +923,5 @@ const styles = themed(() => StyleSheet.create({
     width: 20, height: 20, borderRadius: 10, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
   },
   bullet: { width: 6, height: 6, borderRadius: 3, marginTop: 7 },
-  week: { flexDirection: 'row', alignItems: 'center', gap: space.lg },
+  segment: { flex: 1, height: 6, borderRadius: 3 },
 }));

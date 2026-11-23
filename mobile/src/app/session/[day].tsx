@@ -231,7 +231,7 @@ export default function SessionScreen() {
         { exercise: rx.name, reps: r.reps, load_kg: r.load_kg, rpe: r.rpe, record }));
       if (record) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        comms.say('Novo recorde.');
+        comms.say('Recorde pessoal.');
         setRecordFlash(`${rx.name}: 1RM estimado ${String(e1rm).replace('.', ',')} kg`);
       } else {
         Haptics.selectionAsync().catch(() => {});
@@ -347,8 +347,8 @@ export default function SessionScreen() {
           <PopIn>
           <Panel accent={colors.accent}>
             <Row style={{ gap: space.sm }}>
-              <Icon name="bolt" size={20} color={colors.accent} />
-              <T variant="title" color={colors.accent} style={{ flex: 1 }}>Novo recorde</T>
+              <Icon name="chart" size={20} color={colors.accent} />
+              <T variant="title" color={colors.accent} style={{ flex: 1 }}>Recorde pessoal</T>
               <TextLink label="Fechar" color={colors.textMuted} onPress={() => setRecordFlash(null)} />
             </Row>
             <T>{recordFlash}</T>
@@ -622,8 +622,8 @@ function SessionSummary({ progress, onShown, onClose }: { progress: Progress; on
         </Row>
         {sum.records.length > 0 && (
           <Row style={styles.summaryRecords}>
-            <Icon name="bolt" size={18} color={colors.accent} />
-            <T color={colors.accent} style={{ flex: 1 }}>Recorde: {sum.records.join(', ')}</T>
+            <Icon name="chart" size={18} color={colors.accent} />
+            <T color={colors.accent} style={{ flex: 1 }}>Recorde pessoal: {sum.records.join(', ')}</T>
           </Row>
         )}
         <T variant="hint" style={{ textAlign: 'center' }}>Agora: proteína, água e sono. As séries sobem quando houver sinal.</T>

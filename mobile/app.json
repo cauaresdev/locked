@@ -17,7 +17,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0B0B0D",
+        "backgroundColor": "#14171D",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -46,7 +46,7 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 140,
           "resizeMode": "contain",
-          "backgroundColor": "#0B0B0D"
+          "backgroundColor": "#0F0F11"
         }
       ],
       [
@@ -76,7 +76,7 @@
       [
         "expo-notifications",
         {
-          "color": "#D97706",
+          "color": "#E2D3B8",
           "sounds": [
             "./assets/sounds/alarm.wav",
             "./assets/sounds/rest.wav",
@@ -118,7 +118,7 @@
       ]
     ],
     "scheme": "knightfall",
-    "backgroundColor": "#0A0A0B",
+    "backgroundColor": "#0F0F11",
     "experiments": {
       "typedRoutes": true
     }
